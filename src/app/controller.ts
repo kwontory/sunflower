@@ -39,6 +39,11 @@ export interface ControllerDeps {
   requestLocation: () => Promise<Result<Coordinates, LocationFailure>>;
   heading: HeadingSource;
   onState: (state: AppState) => void;
+  /**
+   * 위치 권한이 이미 거부되어 권한 창이 다시 뜨지 않을 때 호출한다.
+   * 브라우저에 따라 페이지를 다시 읽으면 권한 창이 다시 뜬다. 다시 읽기를 시작했으면 true.
+   */
+  reloadForLocationPrompt?: () => boolean;
 }
 
 export interface Controller {
@@ -47,6 +52,8 @@ export interface Controller {
   setTab(tab: Tab): void;
   requestHeading(): Promise<void>;
   retryLocation(): Promise<void>;
+  /** 네트워크가 다시 연결됐을 때 */
+  handleOnline(): void;
   handleVisibilityChange(): void;
   /** 위치 권한 상태가 바뀌었을 때 (권한 창에서 허용을 누른 경우 등) */
   handleLocationPermission(state: 'granted' | 'denied' | 'prompt'): void;
@@ -62,6 +69,10 @@ export function createController(deps: ControllerDeps): Controller {
   const nowIso = () => deps.now().toISOString();
 
   let coords: Coordinates | null = null;
+  /** 이번 실행에서 현재 위치를 확인했는지 (임시로 쓰는 이전 좌표와 구분) */
+  let confirmed = false;
+  /** 이번 실행에서 마지막으로 조회를 시도한 좌표 (같은 좌표로 중복 호출하지 않기 위해) */
+  let attemptedCoords: Coordinates | null = null;
   let lastGood: SunReading | null = deps.store.loadLastGood();
   let lastRequestAt: Date | null = null;
   let lastSuccessAt: Date | null = lastGood ? new Date(lastGood.fetchedAt) : null;
@@ -75,6 +86,7 @@ export function createController(deps: ControllerDeps): Controller {
     now: nowIso(),
     data: { kind: 'loading' },
     heading: { kind: 'needs-permission' },
+    location: 'locating',
     nextRefreshAt: null,
     records: deps.store.loadDailyRecords(),
     requestLog: [],
@@ -183,6 +195,7 @@ export function createController(deps: ControllerDeps): Controller {
       return Promise.resolve();
     }
     const target = coords;
+    attemptedCoords = target;
     lastRequestAt = deps.now();
     inFlight = (async () => {
       try {
@@ -190,6 +203,8 @@ export function createController(deps: ControllerDeps): Controller {
           () => getSunReading(target, deps.now(), { fetch: deps.fetch, now: deps.now }),
           { sleep: deps.sleep, random: deps.random },
         );
+        // 그사이 위치가 거부됐거나 다른 좌표로 바뀌었으면 이 결과는 쓰지 않는다
+        if (!coords || !sameCoords(coords, target)) return;
         if (result.ok) onSuccess(result.value, trigger, attempts);
         else onFailure(result.error, trigger, attempts);
       } finally {
@@ -209,20 +224,19 @@ export function createController(deps: ControllerDeps): Controller {
     return locating;
   };
 
-  const locateOnce = async (trigger: Trigger) => {
-    const located = await deps.requestLocation();
-    if (!located.ok) {
-      coords = null;
-      clearRefreshTimer();
-      publish({ data: { kind: 'no-location', reason: located.error }, nextRefreshAt: null });
-      return;
-    }
-    coords = located.value;
+  /** 권한 창 없이 바로 거부가 돌아온 것으로 보는 시간 */
+  const INSTANT_DENIAL_MS = 1500;
 
-    // 같은 위치에서 5분 안에 받은 값이 있으면 호출하지 않는다 (D005 요청 캐시)
+  /** 현재 좌표로 보여줄 값을 준비한다: 5분 안에 받은 같은 위치의 값이 있으면 호출하지 않는다 (D005 요청 캐시) */
+  const loadForCoords = async (trigger: Trigger) => {
+    // 이전 좌표로 받던 요청이 있으면 끝난 뒤 판단한다
+    if (inFlight) await inFlight;
+    if (!coords) return;
     if (lastGood && sameCoords(lastGood.coords, coords) && isCacheValid(lastGood.fetchedAt, deps.now())) {
+      const d = state.data;
+      if ((d.kind === 'fresh' || d.kind === 'cached') && sameCoords(d.reading.coords, coords)) return;
       publish({
-        data: { kind: 'cached', reading: lastGood },
+        data: withFreshness({ kind: 'cached', reading: lastGood }),
         requestLog: log({ trigger, outcome: 'cache-hit', attempts: 0 }),
       });
       scheduleRefresh(nextAutoRefreshAt(new Date(lastGood.fetchedAt), 0));
@@ -231,11 +245,54 @@ export function createController(deps: ControllerDeps): Controller {
     await fetchSun(trigger);
   };
 
+  const locateOnce = async (trigger: Trigger) => {
+    const startedAt = deps.now().getTime();
+    const located = await deps.requestLocation();
+    if (!located.ok) {
+      // 다른 요청이 먼저 현재 위치를 얻었으면 이 실패는 무시한다
+      if (confirmed) return;
+      if (
+        trigger === 'manual' &&
+        located.error === 'denied' &&
+        deps.now().getTime() - startedAt < INSTANT_DENIAL_MS &&
+        deps.reloadForLocationPrompt?.()
+      ) {
+        return;
+      }
+      // 위치를 잠시 못 잡은 경우에만 이전 위치 기준 값을 계속 보여준다. 거부했다면 이전 좌표도 쓰지 않는다
+      if (located.error === 'unavailable' && coords && state.location === 'provisional') {
+        publish({ location: 'last-known' });
+        return;
+      }
+      coords = null;
+      clearRefreshTimer();
+      publish({ data: { kind: 'no-location', reason: located.error }, location: 'none', nextRefreshAt: null });
+      return;
+    }
+    confirmed = true;
+    coords = located.value;
+    publish({ location: 'current' });
+    // 이전 좌표와 같은 곳이면 이미 조회를 시도했으므로 다시 부르지 않는다 (D004)
+    if (attemptedCoords && sameCoords(attemptedCoords, coords)) {
+      if (inFlight) await inFlight;
+      return;
+    }
+    await loadForCoords(trigger);
+  };
+
   return {
     async start() {
       deps.heading.start(updateHeading);
       publish({});
       startClock();
+      // 마지막으로 받은 값이 있으면 그 반올림 좌표로 먼저 보여주고, 현재 위치는 동시에 확인한다
+      if (lastGood) {
+        coords = lastGood.coords;
+        publish({ location: 'provisional' });
+        const provisional = loadForCoords('initial');
+        await Promise.all([provisional, locateAndLoad('initial')]);
+        return;
+      }
       await locateAndLoad('initial');
     },
 
@@ -280,6 +337,8 @@ export function createController(deps: ControllerDeps): Controller {
         if (state.data.kind === 'no-location') void locateAndLoad('manual');
         return;
       }
+      // 이전 위치 기준으로 보여주는 중이면 현재 위치를 다시 확인한다
+      if (state.location === 'last-known') void locateAndLoad('manual');
       if (shouldFetchOnVisible(lastSuccessAt, deps.now())) {
         void fetchSun('auto');
       } else if (lastSuccessAt) {
@@ -288,7 +347,17 @@ export function createController(deps: ControllerDeps): Controller {
     },
 
     handleLocationPermission(permission) {
-      if (permission === 'granted' && !coords) void locateAndLoad('initial');
+      // 느린 요청이 진행 중이어도 허용 직후 새로 요청한다. 먼저 얻은 결과를 쓴다
+      if (permission === 'granted' && !confirmed) void locateOnce('initial');
+    },
+
+    handleOnline() {
+      if (!coords) {
+        if (state.data.kind === 'no-location') void locateAndLoad('manual');
+        return;
+      }
+      // 실패했거나 받아 둔 값만 있는 상태면 바로 다시 조회한다
+      if (state.data.kind !== 'fresh') void fetchSun('auto');
     },
 
     exportRecords() {

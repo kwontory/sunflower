@@ -117,6 +117,13 @@ export function dataPill(state: AppState): { tone: Tone; text: string } {
   }
 }
 
+/** 이전 위치 기준으로 보여줄 때의 안내 문구 */
+function locationNote(state: AppState): string | null {
+  if (state.location === 'provisional') return T.provisionalNote;
+  if (state.location === 'last-known') return T.lastKnownNote;
+  return null;
+}
+
 // ---------- 공통 영역 ----------
 
 function tabIcon(tab: Tab): SVGSVGElement {
@@ -139,8 +146,10 @@ function tabIcon(tab: Tab): SVGSVGElement {
 }
 
 function renderHeader(state: AppState, handlers: UiHandlers): HTMLElement {
-  const wordmark = h('div', { class: 'wordmark', attrs: { 'aria-label': 'sunflower' } });
+  // 워드마크를 누르면 '지금' 화면으로 간다
+  const wordmark = h('button', { class: 'wordmark', attrs: { type: 'button', 'aria-label': 'sunflower, 지금 화면으로' } });
   wordmark.append('sunfl', h('span', { class: 'o', text: 'o' }), 'wer');
+  wordmark.addEventListener('click', () => handlers.onTabChange('now'));
 
   const nav = h('nav', { class: 'tabs', attrs: { 'aria-label': '화면 선택' } });
   for (const tab of TABS) {
@@ -224,7 +233,9 @@ function renderNow(state: AppState, handlers: UiHandlers, rotation: number): HTM
 
   if (data.kind === 'loading') {
     visual.append(buildDial({ mode: 'north-up', sunAzimuth: null, label: '나침반', idPrefix: 'sun-dial' }));
-    info.append(h('h1', { class: 'headline', text: T.loading, attrs: { 'aria-live': 'polite' } }));
+    // 위치 확인 → 해의 위치 조회 순서로 문구를 바꿔 멈춘 것처럼 보이지 않게 한다
+    const text = state.location === 'locating' ? T.locating : T.loading;
+    info.append(h('h1', { class: 'headline', text, attrs: { 'aria-live': 'polite' } }));
     return view;
   }
 
@@ -245,6 +256,8 @@ function renderNow(state: AppState, handlers: UiHandlers, rotation: number): HTM
   pills.append(pill(p.tone, p.text));
   if (shown && state.heading.kind !== 'available') pills.append(pill('neutral', T.headingOff));
   info.append(pills);
+  const note = locationNote(state);
+  if (note) info.append(h('p', { class: 'note location-note', text: note, attrs: { 'aria-live': 'polite' } }));
 
   if (data.kind === 'failed') info.append(failureBlock(data));
 
@@ -423,7 +436,7 @@ function renderStatusCard(state: AppState): HTMLElement {
   if (d.kind === 'fresh' || d.kind === 'cached' || d.kind === 'stale') headline = statusHeadline(d.kind);
   else if (d.kind === 'failed') headline = failureMessage(d.failure);
   else if (d.kind === 'no-location') headline = T.noLocationTitle;
-  else headline = T.loading;
+  else headline = state.location === 'locating' ? T.locating : T.loading;
 
   const c = card('card-status', h('div', { class: 'pills' }, pill(p.tone, p.text)), h('h1', { class: 'headline headline-sm', text: headline }));
   const dl = h('dl', { class: 'kv-list' });
@@ -469,7 +482,9 @@ function renderDeviceCard(state: AppState): HTMLElement {
   const d = state.data;
   let location: string;
   if (d.kind === 'no-location') location = d.reason === 'denied' ? '위치 권한이 없어요' : '위치를 확인하지 못했어요';
-  else if (d.kind === 'loading') location = T.checking;
+  else if (state.location === 'provisional') location = T.provisionalNote;
+  else if (state.location === 'last-known') location = '현재 위치를 확인하지 못함 · 이전 위치 기준';
+  else if (d.kind === 'loading' || state.location === 'locating') location = T.checking;
   else location = '위치 확인됨 (약 1km 단위로 반올림)';
 
   const hs = state.heading;
@@ -516,8 +531,11 @@ function renderStatus(state: AppState): HTMLElement {
   return h(
     'div',
     { class: 'view view-status' },
-    h('div', { class: 'col' }, renderStatusCard(state), renderLastGoodCard(state), renderDeviceCard(state)),
-    h('div', { class: 'col' }, renderLogCard(state)),
+    // 넓은 화면: 현재 상태(전체 폭) / 마지막으로 받은 값·기기(나란히) / 요청 기록(전체 폭)
+    renderStatusCard(state),
+    renderLastGoodCard(state),
+    renderDeviceCard(state),
+    renderLogCard(state),
   );
 }
 

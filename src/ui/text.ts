@@ -11,7 +11,10 @@ export const TAB_LABELS: Record<Tab, string> = {
 
 export const T = {
   headingOff: '방향 감지 안 됨',
-  loading: '해의 위치를 확인하고 있어요',
+  locating: '위치를 확인하고 있어요',
+  loading: '해의 위치를 받아오고 있어요',
+  provisionalNote: '이전 위치 기준 · 현재 위치 확인 중',
+  lastKnownNote: '현재 위치를 확인하지 못해 이전 위치 기준으로 보여드려요',
   checking: '확인 중',
   noLocationTitle: '지금 위치를 확인할 수 없어요',
   noLocationBody: '해의 방향을 찾으려면 위치가 필요해요',

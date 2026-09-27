@@ -32,6 +32,7 @@ function setup(options: {
   fetch?: typeof fetch;
   location?: Result<Coordinates, LocationFailure>;
   locate?: () => Promise<Result<Coordinates, LocationFailure>>;
+  reloadForLocationPrompt?: () => boolean;
   lastGood?: SunReading;
   visible?: boolean;
 } = {}) {
@@ -75,6 +76,7 @@ function setup(options: {
     requestLocation: options.locate ?? (async () => options.location ?? { ok: true, value: SEOUL_CITY_HALL }),
     heading,
     onState: (s) => states.push(s),
+    reloadForLocationPrompt: options.reloadForLocationPrompt,
   });
 
   /** 시계를 ms만큼 진행하며 그 사이 예약된 타이머를 순서대로 실행한다 */
@@ -289,17 +291,119 @@ describe('controller', () => {
     expect(locate).toHaveBeenCalledTimes(2);
   });
 
-  it('위치 요청이 진행 중이면 겹쳐서 요청하지 않는다', async () => {
+  it('느린 위치 요청 중에 권한 허용 알림이 오면 새로 요청하고, 먼저 얻은 결과를 쓴다', async () => {
+    const pending: Array<(v: Result<Coordinates, LocationFailure>) => void> = [];
+    const locate = vi.fn(() => new Promise<Result<Coordinates, LocationFailure>>((r) => pending.push(r)));
+    const t = setup({ locate });
+    const started = t.controller.start();
+    await Promise.resolve();
+    t.controller.handleLocationPermission('granted');
+    expect(locate).toHaveBeenCalledTimes(2);
+
+    pending[1]({ ok: true, value: SEOUL_CITY_HALL }); // 허용 뒤 요청이 먼저 성공
+    await vi.waitFor(() => expect(t.last().data.kind).toBe('fresh'));
+    pending[0]({ ok: false, error: 'unavailable' }); // 처음 요청은 나중에 시간 초과
+    await started;
+    expect(t.last().data.kind).toBe('fresh');
+  });
+
+  it('버튼을 여러 번 눌러도 위치 요청은 겹치지 않는다', async () => {
     let release: (v: Result<Coordinates, LocationFailure>) => void = () => {};
     const locate = vi.fn(() => new Promise<Result<Coordinates, LocationFailure>>((r) => (release = r)));
     const t = setup({ locate });
     const started = t.controller.start();
     await Promise.resolve();
-    t.controller.handleLocationPermission('granted');
+    void t.controller.retryLocation();
     void t.controller.retryLocation();
     expect(locate).toHaveBeenCalledTimes(1);
     release({ ok: true, value: SEOUL_CITY_HALL });
     await started;
+  });
+
+  it('위치 허용하기를 눌렀는데 권한 창 없이 바로 거부되면 페이지를 다시 읽어 권한 창을 띄운다', async () => {
+    const reload = vi.fn(() => true);
+    const t = setup({ location: { ok: false, error: 'denied' }, reloadForLocationPrompt: reload });
+    await t.controller.start();
+    expect(reload).not.toHaveBeenCalled(); // 처음 시작할 때는 다시 읽지 않는다
+    await t.controller.retryLocation();
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('다시 읽기를 할 수 없으면 위치 없음 상태를 유지한다', async () => {
+    const t = setup({ location: { ok: false, error: 'denied' }, reloadForLocationPrompt: () => false });
+    await t.controller.start();
+    await t.controller.retryLocation();
+    expect(t.last().data).toEqual({ kind: 'no-location', reason: 'denied' });
+  });
+
+  it('네트워크가 돌아오면 실패 상태에서 바로 다시 조회한다', async () => {
+    let online = false;
+    const t = setup({
+      fetch: async () => (online ? jsonResponse(celnavBody()) : Promise.reject(new TypeError('Failed to fetch'))),
+    });
+    await t.controller.start();
+    expect(t.last().data.kind).toBe('failed');
+    online = true;
+    t.controller.handleOnline();
+    await vi.waitFor(() => expect(t.last().data.kind).toBe('fresh'));
+  });
+
+  it('이미 실시간 값이면 네트워크가 돌아와도 다시 조회하지 않는다', async () => {
+    const t = setup();
+    await t.controller.start();
+    t.controller.handleOnline();
+    expect(t.fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  describe('이전 위치로 먼저 보여주기 (T22 A)', () => {
+    const SYDNEY = { latitude: -33.86, longitude: 151.21 }; // 공개 장소 (시드니 오페라하우스 부근)
+
+    it('저장된 값이 없으면 위치 확인 중으로 시작한다', async () => {
+      const t = setup();
+      const started = t.controller.start();
+      expect(t.states[0].location).toBe('locating');
+      await started;
+      expect(t.last().location).toBe('current');
+    });
+
+    it('이전 좌표로 먼저 조회하고, 현재 위치가 같으면 다시 부르지 않는다', async () => {
+      let release: (v: Result<Coordinates, LocationFailure>) => void = () => {};
+      const locate = vi.fn(() => new Promise<Result<Coordinates, LocationFailure>>((r) => (release = r)));
+      const t = setup({ locate, lastGood: reading(new Date(START.getTime() - 120 * MINUTE)) });
+      const started = t.controller.start();
+      await vi.waitFor(() => expect(t.last().data.kind).toBe('fresh'));
+      expect(t.last().location).toBe('provisional'); // 위치 확인 전인데 이미 값이 보인다
+      release({ ok: true, value: SEOUL_CITY_HALL });
+      await started;
+      expect(t.fetchMock).toHaveBeenCalledTimes(1);
+      expect(t.last().location).toBe('current');
+    });
+
+    it('현재 위치가 다르면 새 좌표로 다시 조회한다', async () => {
+      const t = setup({ lastGood: reading(new Date(START.getTime() - 120 * MINUTE), SYDNEY) });
+      await t.controller.start();
+      await vi.waitFor(() => expect(t.fetchMock).toHaveBeenCalledTimes(2));
+      expect(String(t.fetchMock.mock.calls[0][0])).toContain('coords=-33.86,151.21');
+      expect(String(t.fetchMock.mock.calls[1][0])).toContain('coords=37.57,126.98');
+      await vi.waitFor(() => {
+        const d = t.last().data;
+        expect(d.kind === 'fresh' && d.reading.coords).toEqual(SEOUL_CITY_HALL);
+      });
+    });
+
+    it('위치 권한을 거부하면 이전 좌표도 쓰지 않는다', async () => {
+      const t = setup({ location: { ok: false, error: 'denied' }, lastGood: reading(new Date(START.getTime() - 120 * MINUTE)) });
+      await t.controller.start();
+      expect(t.last().data).toEqual({ kind: 'no-location', reason: 'denied' });
+      expect(t.last().location).toBe('none');
+    });
+
+    it('위치를 잠시 못 잡으면 이전 위치 기준 값을 계속 보여주고 그 사실을 표시한다', async () => {
+      const t = setup({ location: { ok: false, error: 'unavailable' }, lastGood: reading(new Date(START.getTime() - 120 * MINUTE)) });
+      await t.controller.start();
+      expect(t.last().data.kind).toBe('fresh');
+      expect(t.last().location).toBe('last-known');
+    });
   });
 
   it('탭 전환', async () => {

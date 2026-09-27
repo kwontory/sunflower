@@ -107,3 +107,27 @@ describe('상태 탭', () => {
     expect(root.querySelector('.card-lastgood')!.textContent).toContain('170.9°');
   });
 });
+
+describe('헤더', () => {
+  it('워드마크를 누르면 지금 화면으로 간다', () => {
+    const hs = handlers();
+    render(root, state({ tab: 'status' }), hs);
+    const wordmark = root.querySelector('button.wordmark') as HTMLButtonElement;
+    expect(wordmark).not.toBeNull();
+    wordmark.click();
+    expect(hs.onTabChange).toHaveBeenCalledWith('now');
+  });
+});
+
+describe('상태 탭 배치', () => {
+  it('카드가 한쪽 열로 묶이지 않고 상태 화면 바로 아래에 나란히 놓인다', () => {
+    render(root, state({ tab: 'status' }), handlers());
+    const view = root.querySelector('.view-status')!;
+    const classes = [...view.children].map((c) => c.className);
+    expect(classes.some((c) => c.includes('card-status'))).toBe(true);
+    expect(classes.some((c) => c.includes('card-lastgood'))).toBe(true);
+    expect(classes.some((c) => c.includes('card-device'))).toBe(true);
+    expect(classes.some((c) => c.includes('card-log'))).toBe(true);
+    expect(view.querySelector('.col')).toBeNull();
+  });
+});

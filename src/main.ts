@@ -44,6 +44,18 @@ const controller = createController({
   store: createStore(safeLocalStorage()),
   requestLocation: () => requestLocation(navigator.geolocation),
   heading: createHeadingSource(browserHeadingEnvironment(window)),
+  // 거부된 권한은 같은 페이지에서 다시 묻지 않는 브라우저가 있어, 한 번만 다시 읽어 권한 창을 띄운다
+  reloadForLocationPrompt: () => {
+    const KEY = 'sunflower:locationReloaded';
+    try {
+      if (sessionStorage.getItem(KEY)) return false;
+      sessionStorage.setItem(KEY, '1');
+    } catch {
+      return false;
+    }
+    window.location.reload();
+    return true;
+  },
   onState: (state) =>
     render(root, state, {
       onTabChange: (tab) => controller.setTab(tab),
@@ -55,6 +67,8 @@ const controller = createController({
 });
 
 document.addEventListener('visibilitychange', () => controller.handleVisibilityChange());
+// 비행기 모드를 끄는 등 네트워크가 돌아오면 바로 다시 조회한다
+window.addEventListener('online', () => controller.handleOnline());
 // 권한 창에서 "허용"을 누른 순간 위치를 다시 요청한다
 watchLocationPermission(navigator.permissions as Parameters<typeof watchLocationPermission>[0], (state) =>
   controller.handleLocationPermission(state),

@@ -79,6 +79,16 @@ export interface RequestLogEntry {
 
 export type Tab = 'now' | 'records' | 'status';
 
+/**
+ * 조회에 쓰는 위치의 상태.
+ * - locating: 위치를 확인하는 중 (아직 쓸 좌표 없음)
+ * - current: 이번에 확인한 현재 위치
+ * - provisional: 현재 위치를 확인하는 동안 마지막으로 받은 값의 반올림 좌표를 임시로 사용
+ * - last-known: 현재 위치를 확인하지 못해 마지막으로 받은 값의 반올림 좌표를 계속 사용
+ * - none: 쓸 수 있는 위치 없음
+ */
+export type LocationStatus = 'locating' | 'current' | 'provisional' | 'last-known' | 'none';
+
 /** 화면이 그리는 전체 상태 */
 export interface AppState {
   tab: Tab;
@@ -86,6 +96,7 @@ export interface AppState {
   now: string;
   data: DataStatus;
   heading: HeadingStatus;
+  location: LocationStatus;
   /** 다음 자동 갱신 예정 시각 (ISO) */
   nextRefreshAt: string | null;
   records: DailyRecord[];

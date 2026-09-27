@@ -60,7 +60,7 @@ describe('지금 탭', () => {
 
   it('loading', () => {
     render(root, state({ data: { kind: 'loading' } }), handlers());
-    expect(text()).toContain('해의 위치를 확인하고 있어요');
+    expect(text()).toContain('해의 위치를 받아오고 있어요');
     expect(text()).not.toContain('170.9°');
   });
 
@@ -195,5 +195,23 @@ describe('공통', () => {
   it('화면의 다이얼은 고정 id를 써서 같은 상태면 같은 결과를 그린다 (T12)', () => {
     render(root, state(), handlers());
     expect(root.querySelector('radialGradient')!.id).toBe('sun-dial-glow');
+  });
+});
+
+describe('위치 확인 단계 표시 (T22 C)', () => {
+  it('위치를 확인하는 동안과 해의 위치를 받는 동안 문구가 다르다', () => {
+    render(root, state({ data: { kind: 'loading' }, location: 'locating' }), handlers());
+    expect(root.textContent).toContain('위치를 확인하고 있어요');
+    render(root, state({ data: { kind: 'loading' }, location: 'current' }), handlers());
+    expect(root.textContent).toContain('해의 위치를 받아오고 있어요');
+  });
+
+  it('이전 위치 기준으로 보여줄 때 안내한다', () => {
+    render(root, state({ location: 'provisional' }), handlers());
+    expect(root.textContent).toContain('이전 위치 기준 · 현재 위치 확인 중');
+    render(root, state({ location: 'last-known' }), handlers());
+    expect(root.textContent).toContain('현재 위치를 확인하지 못해 이전 위치 기준으로 보여드려요');
+    render(root, state({ location: 'current' }), handlers());
+    expect(root.textContent).not.toContain('이전 위치 기준');
   });
 });

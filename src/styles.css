@@ -90,6 +90,18 @@ p {
   letter-spacing: -0.03em;
   line-height: 1;
   color: var(--ink);
+  /* 버튼 기본 모양을 지우고 글자만 보이게 한다. 누르기 쉽게 높이는 44px */
+  background: none;
+  border: 0;
+  padding: 0;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.wordmark:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 4px;
+  border-radius: 4px;
 }
 
 .wordmark .o {
@@ -472,7 +484,7 @@ select:focus-visible {
 
 /* ---------- 상태 탭 ---------- */
 
-.col {
+.view-status {
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -579,12 +591,18 @@ select:focus-visible {
     padding-bottom: 40px;
   }
 
-  .view-now,
-  .view-status {
+  .view-now {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 32px;
     align-items: start;
+  }
+
+  .view-status {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 24px;
+    align-items: stretch;
   }
 
   .view-now {
@@ -775,6 +793,12 @@ select:focus-visible {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 16px;
-    align-items: start;
+    align-items: stretch;
   }
+}
+
+/* 상태 탭 두 열 배치: 현재 상태와 요청 기록은 전체 폭, 나머지 두 카드는 나란히 두어 한쪽으로 쏠리지 않게 한다 */
+.view-status > .card-status,
+.view-status > .card-log {
+  grid-column: 1 / -1;
 }

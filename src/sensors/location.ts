@@ -5,8 +5,8 @@ export type LocationFailure = 'denied' | 'unavailable';
 
 // 권한 창이 떠 있는 시간까지 제한 시간에 포함하는 브라우저가 있어 넉넉히 둔다
 export const LOCATION_TIMEOUT_MS = 20_000;
-// 좌표를 반올림해서 쓰므로 조금 오래된 위치도 충분하다
-const LOCATION_MAX_AGE_MS = 10 * 60_000;
+// 좌표를 반올림해서 쓰므로 기기에 남아 있는 위치를 1시간까지 그대로 쓴다 (수 km 이동해도 해 방향 차이는 0.1° 수준)
+export const LOCATION_MAX_AGE_MS = 60 * 60_000;
 
 /**
  * 현재 위치를 한 번 얻어 반올림한 좌표로 돌려준다.
