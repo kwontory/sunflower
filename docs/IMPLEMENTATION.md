@@ -10,7 +10,8 @@
 - 과제 4 제출 완료. 과제 5 종료 (T29 완료). T14는 과제 4 제출 이후 별도 진행하지 않음.
 - 과제 5 고정 검사 10개(`tests/assignment5/fixed-checks.test.ts`)는 기록 보존을 위해 계속 변경하지 않는다.
 - 현재 일반 개선 작업 진행 중. T30 완료 (커밋·배포 전, 실기기 확인 필요).
-- 현재 운영 배포: `main`의 "보안 헤더" 커밋 (2026-09-27, Vercel production). 배포 방법과 주의점은 아래 작업 로그 참고.
+- 현재 운영 배포: `main`의 T30 커밋 `b1678c0` (2026-09-27, Vercel production). 배포 방법과 주의점은 아래 작업 로그 참고.
+- Vercel과 GitHub는 연결하지 않는다 (D013). 배포는 CLI로만.
 - 운영 대표 주소: https://sunflower-gamma-two.vercel.app — **공개** (로그인 없이 누구나 열 수 있음)
 - 배포마다 생기는 고유 주소(미리보기 포함)와 Vercel 계정 이름이 붙은 보조 주소는
   Vercel 로그인 보호(Deployment Protection, Standard Protection)가 걸려 있다. Vercel 계정으로 로그인해야 열린다.
@@ -184,3 +185,6 @@ CLAUDE.md의 분리 원칙(외부 통신 / 응답 검증 / 태양 방향 계산 
     설명은 말줄임 없이 모두 보여주고, 남은 폭 안에서 단어 단위로 줄바꿈(`word-break: keep-all`). 첫 줄 글자선에 맞춰 정렬.
     시안의 상태 탭 5종(모바일·태블릿 세로·태블릿 가로·데스크톱·밤)에도 같은 규칙 적용.
   - Playwright E2E 50개 통과: 요청 기록 배지 한 줄·설명 잘림 없음 검사, 가장 긴 문구(429 "요청이 너무 많아요. 잠시 기다려 주세요") 확인 추가.
+- 2026-09-27: `b1678c0` push, Vercel 운영 배포. 배포 고유 주소로 번들 확인(새 문구·달 그림 있음, USNO 설명 문구 없음), 보안 헤더 7종 확인.
+  - 확인 명령: `npx vercel curl <경로> --deployment <배포 주소>` (경로와 배포 주소를 따로 준다).
+  - Vercel과 GitHub 연결 안 함 (D013). 확인 결과 연결 없음. `vercel.json`에 `git.deploymentEnabled: false` 추가.

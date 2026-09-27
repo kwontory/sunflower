@@ -85,6 +85,9 @@ npx vercel deploy --prod --yes   # 운영 (https://sunflower-gamma-two.vercel.ap
 
 - 업로드 파일은 `.vercelignore` 허용 목록(`src`, `public`, `index.html`, `vercel.json`, 패키지·설정 파일)으로 제한한다.
 - 운영 대표 주소는 공개이고, 미리보기·배포 고유 주소는 Vercel 로그인 보호가 걸려 있다.
+- GitHub 저장소와 Vercel 프로젝트는 연결하지 않는다 (D013). 배포는 위 CLI 명령으로만 한다.
+  `vercel git connect`, `vercel project connect`를 쓰지 않고, CLI가 Git 연결을 물으면 거절한다.
+  혹시 연결되더라도 `vercel.json`의 `git.deploymentEnabled: false`로 push 자동 배포는 막혀 있다.
 
 ## 기술 스택
 

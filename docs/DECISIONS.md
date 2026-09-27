@@ -390,3 +390,24 @@ USNO 값은 조사 단계에서 Horizons와 소수 셋째 자리까지 일치했
 이 경우를 실패로 처리하면 심야 내내 "불러오지 못했어요"와 백오프가 쌓이고,
 낮에 받은 마지막 정상값으로 "왼쪽으로 N°" 같은 방향 안내가 나올 수 있었다.
 판정 조건을 "다른 천체 항목은 정상"으로 좁힌 것은 USNO 응답 형식이 바뀐 경우를 심야로 잘못 보지 않기 위해서다.
+
+---
+
+## D013 — Vercel과 GitHub 연결 안 함
+
+날짜: 2026.09.27
+
+결정:
+
+- Vercel 프로젝트에 GitHub 저장소를 연결하지 않는다. 배포는 Vercel CLI(`npx vercel deploy`)로만 한다.
+- `vercel git connect`, `vercel project connect`를 쓰지 않는다. CLI나 대시보드가 Git 연결을 제안하면 거절한다.
+- 안전장치로 `vercel.json`에 `"git": { "deploymentEnabled": false }`를 둔다. 실수로 연결돼도 push마다 자동 배포되지 않는다.
+- 연결 여부는 `npx vercel git disconnect`로 확인할 수 있다 ("No Git repository connected"면 연결 없음).
+
+판단:
+나
+
+이유:
+배포 시점과 올라가는 파일을 직접 통제하기 위해서다. 연결하면 push마다 자동 배포되고,
+Vercel이 저장소 전체에 접근하게 된다. 지금은 `.vercelignore` 허용 목록으로 업로드 파일을 제한하고 있다.
+2026-09-27 확인 결과 연결되어 있지 않았다.
