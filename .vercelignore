@@ -1,0 +1,10 @@
+# 배포에 필요한 파일만 올린다 (허용 목록 방식).
+# 이 폴더에는 개인 설정 파일(.bashrc, .gitconfig, .mcp.json 등)이 있으므로 기본값은 모두 제외한다.
+/*
+!/src
+!/index.html
+!/package.json
+!/package-lock.json
+!/tsconfig.json
+!/vite.config.ts
+!/public

@@ -17,18 +17,9 @@ Sunflower에서 실제 공개 API를 사용한다.
 - 인증 필요 여부: 필요 없음 (선택 파라미터 `ID`는 사용자 수 집계용)
 - 참고: `time`은 UT1 기준이며, CORS를 허용한다.
 
-#### 교차 검증용 API (필요할 때만)
-
-- API 이름: NASA JPL Horizons API
-- 공식 문서: https://ssd-api.jpl.nasa.gov/doc/horizons.html
-- endpoint: `https://ssd.jpl.nasa.gov/api/horizons.api`
-- 사용 데이터: 관측자 기준 태양의 방위각(`Azi`)과 고도(`Elev`)
-- 인증 필요 여부: 필요 없음
-- 참고: CORS 헤더가 없어 브라우저에서 직접 호출할 수 없고, 응답이 텍스트 표 형식이다.
-
 #### 호출 원칙
 
-두 API 모두 공식 호출 한도가 명시되어 있지 않으므로
+USNO API는 공식 호출 한도가 명시되어 있지 않으므로
 외부 API 호출 횟수를 최대한 줄이는 방향으로 구현한다. (D004)
 
 구체적인 호출 간격, 캐시, 재시도 정책은 D005를 따른다.

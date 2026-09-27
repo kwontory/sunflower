@@ -10,6 +10,9 @@ const RAYS: ReadonlyArray<readonly [number, number]> = [
 
 let dialSeq = 0;
 
+/** 회전 애니메이션 시간. 컨트롤러의 방향 갱신 간격(250ms)과 비슷하게 맞춰 끊김 없이 이어지게 한다 */
+export const DIAL_TRANSITION_MS = 300;
+
 export interface DialOptions {
   /** heading-up: 기기 앞쪽이 위. north-up: 북쪽이 위. */
   mode: 'heading-up' | 'north-up';
@@ -17,11 +20,36 @@ export interface DialOptions {
   sunAzimuth: number | null;
   /** heading-up일 때 기기가 향한 방향 */
   heading?: number;
+  /**
+   * 나침반 판의 회전 각도(시계 방향). 기본값은 -heading (north-up은 0).
+   * 359°→1°처럼 경계를 넘을 때 먼 쪽으로 돌지 않도록 누적 각도를 줄 수 있다.
+   */
+  rotation?: number;
+  /** false면 회전 애니메이션을 넣지 않는다. 기본값은 사용자의 동작 줄이기 설정을 따른다 */
+  animate?: boolean;
   /** 해가 지평선 아래일 때 흐리게 */
   belowHorizon?: boolean;
   label: string;
   /** 그라데이션 id 접두어. 한 화면에 다이얼이 하나뿐이면 고정값을 줘서 다시 그려도 같은 결과가 나오게 한다 */
   idPrefix?: string;
+}
+
+/** 사용자가 동작 줄이기를 켰는지. matchMedia가 없는 환경(jsdom 등)에서는 false */
+export function prefersReducedMotion(): boolean {
+  try {
+    return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      : false;
+  } catch {
+    return false;
+  }
+}
+
+/** prev에서 target 방향으로 가장 짧게 도는 누적 각도. 결과를 360으로 나눈 나머지는 target과 같다 */
+export function unwrapRotation(prev: number, target: number): number {
+  let diff = (((target - prev) % 360) + 360) % 360;
+  if (diff > 180) diff -= 360;
+  return round(prev + diff);
 }
 
 function el<K extends keyof SVGElementTagNameMap>(
@@ -76,10 +104,18 @@ function buildDefs(id: string): SVGDefsElement {
   return defs;
 }
 
+/** CSS 회전. 속성(transform)이 아니라 style로 줘야 transition이 동작한다 */
+function rotateStyle(deg: number, origin: string, animate: boolean): string {
+  const base = `transform: rotate(${round(deg)}deg); transform-origin: ${origin}; transform-box: view-box;`;
+  return animate ? `${base} transition: transform ${DIAL_TRANSITION_MS}ms ease-out;` : base;
+}
+
 export function buildDial(opts: DialOptions): SVGSVGElement {
   const id = opts.idPrefix ?? `dial${++dialSeq}`;
   const headingUp = opts.mode === 'heading-up' && opts.heading !== undefined;
-  const rotation = headingUp ? (opts.heading as number) : 0;
+  const heading = headingUp ? (opts.heading as number) : 0;
+  const rotation = opts.rotation ?? (headingUp ? -heading : 0);
+  const animate = opts.animate ?? !prefersReducedMotion();
 
   const svg = el('svg', { viewBox: '0 0 300 300', role: 'img', 'aria-label': opts.label, class: 'dial' });
   svg.dataset.mode = headingUp ? 'heading-up' : 'north-up';
@@ -87,38 +123,48 @@ export function buildDial(opts: DialOptions): SVGSVGElement {
   svg.append(el('circle', { cx: C, cy: C, r: 136, class: 'dial-outer' }));
   svg.append(el('circle', { cx: C, cy: C, r: 100, class: 'dial-inner' }));
 
+  // 회전 호: 기기 앞쪽에서 해까지. 판과 따로 두고 매번 다시 계산한다.
+  // 호가 생기거나 사라져도 다이얼 구조가 바뀌지 않도록 묶음은 항상 둔다.
+  const arcLayer = el('g', { class: 'dial-arc-layer', 'data-morph': 'children' });
+  svg.append(arcLayer);
+  if (headingUp && opts.sunAzimuth !== null) {
+    const turn = computeTurn(opts.sunAzimuth, heading);
+    if (turn.direction !== 'front') {
+      const signed = turn.direction === 'right' ? turn.degrees : -turn.degrees;
+      const start = polar(0, 60);
+      const end = polar(signed, 60);
+      const sweep = signed > 0 ? 1 : 0;
+      arcLayer.append(
+        el('path', { d: `M${start.x} ${start.y} A60 60 0 0 ${sweep} ${end.x} ${end.y}`, class: 'dial-arc' }),
+      );
+    }
+  }
+
+  // 나침반 판: 북쪽 기준으로 그린 뒤 통째로 돌린다
+  const rotor = el('g', { class: 'dial-rotor', style: rotateStyle(rotation, `${C}px ${C}px`, animate) });
   (['N', 'E', 'S', 'W'] as const).forEach((letter, i) => {
-    const p = polar(i * 90 - rotation, 118);
+    const p = polar(i * 90, 118);
+    // 글자는 제자리에서 반대로 돌려 항상 똑바로 서 있게 한다
+    const pos = el('g', { transform: `translate(${p.x} ${p.y})` });
     const t = el('text', {
-      x: p.x,
-      y: p.y,
+      x: 0,
+      y: 0,
       class: letter === 'N' ? 'dial-letter is-north' : 'dial-letter',
       'text-anchor': 'middle',
       'dominant-baseline': 'central',
+      style: rotateStyle(-rotation, '0px 0px', animate),
     });
     t.textContent = letter;
-    svg.append(t);
+    pos.append(t);
+    rotor.append(pos);
   });
 
   if (opts.sunAzimuth !== null) {
-    const sunAngle = opts.sunAzimuth - rotation;
-    const sun = polar(sunAngle, 88);
-
-    if (headingUp) {
-      const turn = computeTurn(opts.sunAzimuth, rotation);
-      if (turn.direction !== 'front') {
-        const signed = turn.direction === 'right' ? turn.degrees : -turn.degrees;
-        const start = polar(0, 60);
-        const end = polar(signed, 60);
-        const sweep = signed > 0 ? 1 : 0;
-        svg.append(
-          el('path', { d: `M${start.x} ${start.y} A60 60 0 0 ${sweep} ${end.x} ${end.y}`, class: 'dial-arc' }),
-        );
-      }
-    }
-    svg.append(el('line', { x1: C, y1: C, x2: sun.x, y2: sun.y, class: 'dial-sunline' }));
-    svg.append(buildSun(id, sun.x, sun.y, opts.belowHorizon === true));
+    const sun = polar(opts.sunAzimuth, 88);
+    rotor.append(el('line', { x1: C, y1: C, x2: sun.x, y2: sun.y, class: 'dial-sunline' }));
+    rotor.append(buildSun(id, sun.x, sun.y, opts.belowHorizon === true));
   }
+  svg.append(rotor);
 
   if (headingUp) {
     svg.append(el('line', { x1: C, y1: C, x2: 150, y2: 36, class: 'dial-pointer' }));

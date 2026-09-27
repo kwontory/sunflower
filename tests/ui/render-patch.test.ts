@@ -50,12 +50,77 @@ describe('부분 갱신', () => {
     expect((root.querySelector('select') as HTMLSelectElement).value).toBe('2026-09-25');
   });
 
-  it('지금 탭은 방향 값이 바뀌면 다이얼을 다시 그린다', () => {
+  it('지금 탭은 방향 값이 바뀌면 다이얼 요소를 유지한 채 판만 돌린다 (부드러운 회전)', () => {
     render(root, state(), handlers());
     const dial = root.querySelector('svg.dial');
+    const main = root.querySelector('main');
+    const rotor = root.querySelector('.dial-rotor');
+    expect(rotor?.getAttribute('style')).toContain('rotate(-138.9deg)');
+
     render(root, state({ heading: { kind: 'available', heading: 200 } }), handlers());
-    expect(root.querySelector('svg.dial')).not.toBe(dial);
+    expect(root.querySelector('svg.dial')).toBe(dial);
+    expect(root.querySelector('main')).toBe(main);
+    expect(root.querySelector('.dial-rotor')).toBe(rotor);
+    expect(rotor?.getAttribute('style')).toContain('rotate(-200deg)');
+    expect(rotor?.getAttribute('style')).toContain('transition: transform');
+    // 글자는 반대로 돌려 똑바로 세운다
+    expect(root.querySelector('.dial-letter')?.getAttribute('style')).toContain('rotate(200deg)');
     expect(root.textContent).toContain('왼쪽으로 29° 돌아보세요');
+    expect(dial?.getAttribute('aria-label')).toContain('왼쪽으로 29°');
+  });
+
+  it('350°에서 10°로 바뀌면 판은 -340°가 아니라 20°만 돈다', () => {
+    const rot = () => {
+      const m = /rotate\((-?[\d.]+)deg\)/.exec(root.querySelector('.dial-rotor')?.getAttribute('style') ?? '');
+      return Number(m?.[1]);
+    };
+    render(root, state({ heading: { kind: 'available', heading: 350 } }), handlers());
+    const before = rot();
+    render(root, state({ heading: { kind: 'available', heading: 10 } }), handlers());
+    const after = rot();
+    expect(after - before).toBeCloseTo(-20);
+    // 반대 방향으로 돌아와도 누적 각도가 이어진다
+    render(root, state({ heading: { kind: 'available', heading: 340 } }), handlers());
+    expect(rot() - after).toBeCloseTo(30);
+  });
+
+  it('해가 정면에 와서 회전 호가 사라져도 다이얼은 유지한다', () => {
+    render(root, state(), handlers());
+    const dial = root.querySelector('svg.dial');
+    expect(root.querySelector('.dial-arc')).not.toBeNull();
+    render(root, state({ heading: { kind: 'available', heading: 170 } }), handlers());
+    expect(root.querySelector('svg.dial')).toBe(dial);
+    expect(root.querySelector('.dial-arc')).toBeNull();
+    expect(root.querySelector('h1')?.textContent).toBe('지금 해가 정면에 있어요');
+  });
+
+  it('데이터 상태 종류가 바뀌면 본문을 교체한다', () => {
+    render(root, state({ data: { kind: 'loading' } }), handlers());
+    const main = root.querySelector('main');
+    const dial = root.querySelector('svg.dial');
+    render(root, state(), handlers());
+    expect(root.querySelector('main')).not.toBe(main);
+    expect(root.querySelector('svg.dial')).not.toBe(dial);
+  });
+
+  it('방향 감지 종류가 바뀌면 본문을 교체한다', () => {
+    render(root, state(), handlers());
+    const main = root.querySelector('main');
+    render(root, state({ heading: { kind: 'needs-permission' } }), handlers());
+    expect(root.querySelector('main')).not.toBe(main);
+    expect(root.querySelector('svg.dial')?.getAttribute('data-mode')).toBe('north-up');
+  });
+
+  it('고쳐 쓴 지금 탭의 버튼도 가장 최근 handlers를 부른다', () => {
+    const first = handlers();
+    render(root, state(), first);
+    const refresh = [...root.querySelectorAll('button')].find((b) => b.textContent === '새로고침') as HTMLButtonElement;
+    const second = handlers();
+    render(root, state({ heading: { kind: 'available', heading: 90 } }), second);
+    expect([...root.querySelectorAll('button')]).toContain(refresh);
+    refresh.click();
+    expect(first.onRefresh).not.toHaveBeenCalled();
+    expect(second.onRefresh).toHaveBeenCalledTimes(1);
   });
 
   it('아무것도 바뀌지 않으면 지금 탭도 그대로 둔다', () => {

@@ -165,6 +165,33 @@ describe('공통', () => {
     expect(a.querySelector('radialGradient')!.id).not.toBe(b.querySelector('radialGradient')!.id);
   });
 
+  it('다이얼 판은 -heading만큼 돌고, rotation을 주면 그 값을 쓴다', () => {
+    const style = (svg: SVGSVGElement) => svg.querySelector('.dial-rotor')!.getAttribute('style') ?? '';
+    const a = buildDial({ mode: 'heading-up', heading: 90, sunAzimuth: 170.9, label: 'a' });
+    expect(style(a)).toContain('rotate(-90deg)');
+    expect(style(a)).toContain('transform-origin: 150px 150px');
+    const b = buildDial({ mode: 'heading-up', heading: 90, rotation: 270, sunAzimuth: 170.9, label: 'b' });
+    expect(style(b)).toContain('rotate(270deg)');
+    const c = buildDial({ mode: 'north-up', sunAzimuth: 170.9, label: 'c' });
+    expect(style(c)).toContain('rotate(0deg)');
+  });
+
+  it('animate: false면 회전 애니메이션을 넣지 않는다 (동작 줄이기)', () => {
+    const d = buildDial({ mode: 'heading-up', heading: 90, sunAzimuth: 170.9, label: 'd', animate: false });
+    for (const node of d.querySelectorAll('[style]')) expect(node.getAttribute('style')).not.toContain('transition');
+  });
+
+  it('동작 줄이기 설정을 켜면 기본으로 애니메이션을 넣지 않는다', () => {
+    const original = window.matchMedia;
+    window.matchMedia = ((q: string) => ({ matches: q.includes('reduce') })) as unknown as typeof window.matchMedia;
+    try {
+      const d = buildDial({ mode: 'heading-up', heading: 90, sunAzimuth: 170.9, label: 'd' });
+      expect(d.querySelector('.dial-rotor')!.getAttribute('style')).not.toContain('transition');
+    } finally {
+      window.matchMedia = original;
+    }
+  });
+
   it('화면의 다이얼은 고정 id를 써서 같은 상태면 같은 결과를 그린다 (T12)', () => {
     render(root, state(), handlers());
     expect(root.querySelector('radialGradient')!.id).toBe('sun-dial-glow');

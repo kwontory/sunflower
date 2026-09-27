@@ -1,15 +1,8 @@
 // AppState를 받아 화면 전체를 다시 그린다. 상태는 바꾸지 않고 사용자 동작은 handlers로 넘긴다.
 import type { AppState, DailyRecord, DataStatus, HeadingStatus, RequestLogEntry, SunReading, Tab } from '../types';
-import {
-  BACKOFF_INTERVALS_MS,
-  CACHE_TTL_MS,
-  MANUAL_REFRESH_COOLDOWN_MS,
-  MAX_RETRIES,
-  REFRESH_INTERVAL_MS,
-  STALE_AFTER_MS,
-} from '../config';
+import { STALE_AFTER_MS } from '../config';
 import { compassPoint, computeTurn, normalizeDegrees } from '../core/direction';
-import { buildDial } from './dial';
+import { buildDial, unwrapRotation } from './dial';
 import {
   formatDegrees,
   formatElapsed,
@@ -222,7 +215,7 @@ function dialLabel(heading: HeadingStatus, azimuth: number | null): string {
   return `나침반, 북쪽이 위: ${facingHeadline(azimuth)}`;
 }
 
-function renderNow(state: AppState, handlers: UiHandlers): HTMLElement {
+function renderNow(state: AppState, handlers: UiHandlers, rotation: number): HTMLElement {
   const data = state.data;
   const view = h('div', { class: 'view view-now' });
   const visual = h('div', { class: 'now-visual' });
@@ -270,6 +263,7 @@ function renderNow(state: AppState, handlers: UiHandlers): HTMLElement {
     buildDial({
       mode: heading.kind === 'available' ? 'heading-up' : 'north-up',
       heading: heading.kind === 'available' ? heading.heading : undefined,
+      rotation,
       sunAzimuth: pos.azimuth,
       belowHorizon: pos.altitude < 0,
       label: dialLabel(heading, pos.azimuth),
@@ -518,29 +512,12 @@ function renderLogCard(state: AppState): HTMLElement {
   return c;
 }
 
-function renderPolicyCard(): HTMLElement {
-  const min = (ms: number) => `${Math.round(ms / 60_000)}분`;
-  const dl = h(
-    'dl',
-    { class: 'kv-list' },
-    row('자동 갱신', `${min(REFRESH_INTERVAL_MS)} 간격 (화면이 보일 때만)`),
-    row('새로고침 제한', `${Math.round(MANUAL_REFRESH_COOLDOWN_MS / 1000)}초 이내면 최근 값 사용`),
-    row('최근 값 유지', min(CACHE_TTL_MS)),
-    row('오래된 값 표시', `조회 후 ${min(STALE_AFTER_MS)}`),
-    row('재시도', `최대 ${MAX_RETRIES}회`),
-    row('연속 실패 시', BACKOFF_INTERVALS_MS.map(min).join(' → ')),
-  );
-  return card('card-policy hide-mobile', h('h2', { class: 'card-title', text: T.policy }), dl);
-}
-
 function renderStatus(state: AppState): HTMLElement {
-  const cross = h('button', { class: 'btn btn-secondary', text: T.crossCheck, attrs: { type: 'button' } });
-  cross.disabled = true;
   return h(
     'div',
     { class: 'view view-status' },
     h('div', { class: 'col' }, renderStatusCard(state), renderLastGoodCard(state), renderDeviceCard(state)),
-    h('div', { class: 'col' }, renderLogCard(state), renderPolicyCard(), cross),
+    h('div', { class: 'col' }, renderLogCard(state)),
   );
 }
 
@@ -553,6 +530,8 @@ interface Mounted {
   /** 이미 그려진 버튼들이 항상 최신 handlers를 부르도록 거치는 객체 */
   handlers: UiHandlers;
   latest: UiHandlers;
+  /** 다이얼 판의 누적 회전 각도. 359°→1°에서 먼 쪽으로 돌지 않게 한다 */
+  rotation: number;
 }
 
 const mounted = new WeakMap<HTMLElement, Mounted>();
@@ -574,15 +553,74 @@ function patch(current: HTMLElement, next: HTMLElement): HTMLElement {
   return next;
 }
 
+// 사용자 동작을 받는 요소. 모양만 같다고 기존 요소를 재사용하면 다른 동작이 연결될 수 있으므로 완전히 같아야 한다
+const INTERACTIVE = new Set(['BUTTON', 'SELECT', 'INPUT', 'TEXTAREA', 'A']);
+
+/** 두 트리의 요소 구성(태그와 자식 순서)이 같은지. 값과 속성은 보지 않는다 */
+function sameShape(a: Node, b: Node): boolean {
+  if (a.nodeType !== b.nodeType || a.nodeName !== b.nodeName) return false;
+  if (!(a instanceof Element)) return true;
+  if (INTERACTIVE.has(a.tagName)) return a.isEqualNode(b);
+  // 자식 구성이 바뀌어도 되는 묶음 (다이얼의 회전 호)
+  if (a.getAttribute('data-morph') === 'children') return true;
+  const ac = a.childNodes;
+  const bc = b.childNodes;
+  if (ac.length !== bc.length) return false;
+  for (let i = 0; i < ac.length; i++) if (!sameShape(ac[i], bc[i])) return false;
+  return true;
+}
+
+/** 구성이 같은 기존 트리에 새 속성과 글자만 옮긴다. 요소가 유지되어 CSS transition이 동작한다 */
+function morph(current: Node, next: Node): void {
+  if (!(current instanceof Element) || !(next instanceof Element)) {
+    if (current.nodeValue !== next.nodeValue) current.nodeValue = next.nodeValue;
+    return;
+  }
+  if (INTERACTIVE.has(current.tagName)) return;
+  for (const attr of [...current.attributes]) {
+    if (!next.hasAttribute(attr.name)) current.removeAttribute(attr.name);
+  }
+  for (const attr of [...next.attributes]) {
+    if (current.getAttribute(attr.name) !== attr.value) current.setAttribute(attr.name, attr.value);
+  }
+  if (current.getAttribute('data-morph') === 'children') {
+    if (!current.isEqualNode(next)) current.replaceChildren(...next.childNodes);
+    return;
+  }
+  const cc = current.childNodes;
+  const nc = next.childNodes;
+  for (let i = 0; i < cc.length; i++) morph(cc[i], nc[i]);
+}
+
+/** 지금 탭: 구성이 같으면 기존 요소를 고쳐 쓰고(다이얼이 부드럽게 돈다), 다르면 교체한다 */
+function patchInPlace(current: HTMLElement, next: HTMLElement): HTMLElement {
+  if (current.isEqualNode(next)) return current;
+  if (!sameShape(current, next)) {
+    current.replaceWith(next);
+    return next;
+  }
+  morph(current, next);
+  return current;
+}
+
+/** 이번에 그릴 다이얼 판 회전 각도. 이전 각도에서 가장 짧게 도는 쪽으로 누적한다 */
+function nextRotation(prev: number | undefined, heading: HeadingStatus): number {
+  const target = heading.kind === 'available' ? -heading.heading : 0;
+  if (prev === undefined) return target;
+  return unwrapRotation(prev, target);
+}
+
 export function render(root: HTMLElement, state: AppState, handlers: UiHandlers): void {
   let m = mounted.get(root);
   if (m && !root.contains(m.app)) m = undefined;
   const fwd = m?.handlers ?? forwardingHandlers(() => mounted.get(root)!.latest);
 
+  const rotation = nextRotation(m?.rotation, state.heading);
+
   let view: HTMLElement;
   if (state.tab === 'records') view = renderRecords(root, state, fwd);
   else if (state.tab === 'status') view = renderStatus(state);
-  else view = renderNow(state, fwd);
+  else view = renderNow(state, fwd, rotation);
 
   const header = renderHeader(state, fwd);
   const main = h('main', { class: 'content', attrs: { 'data-tab': state.tab } }, view);
@@ -590,10 +628,12 @@ export function render(root: HTMLElement, state: AppState, handlers: UiHandlers)
   if (!m) {
     const app = h('div', { class: 'app' }, header, main);
     root.replaceChildren(app);
-    mounted.set(root, { app, header, main, handlers: fwd, latest: handlers });
+    mounted.set(root, { app, header, main, handlers: fwd, latest: handlers, rotation });
     return;
   }
   m.latest = handlers;
+  m.rotation = rotation;
   m.header = patch(m.header, header);
-  m.main = patch(m.main, main);
+  const nowToNow = state.tab === 'now' && m.main.getAttribute('data-tab') === 'now';
+  m.main = nowToNow ? patchInPlace(m.main, main) : patch(m.main, main);
 }

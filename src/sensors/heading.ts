@@ -5,8 +5,14 @@ import { normalizeDegrees } from '../core/direction';
 export const HEADING_DETECT_TIMEOUT_MS = 3000;
 /** 이보다 작은 변화는 알리지 않는다 (화면 떨림 방지) */
 export const HEADING_MIN_CHANGE_DEG = 1;
-/** 원형 저역 통과 필터 계수. 클수록 새 값을 빨리 따라간다 */
-const SMOOTHING = 0.3;
+/**
+ * 원형 저역 통과 필터 계수. 클수록 새 값을 빨리 따라간다.
+ * 센서 이벤트는 초당 수십 번 오므로 0.15면 약 0.1~0.2초 안에 따라간다 (실기기에서 0.3은 떨림이 보였다)
+ */
+export const HEADING_SMOOTHING = 0.15;
+/** 직전 값과 이보다 크게 튀는 값 하나는 버린다. 다음 값도 멀리 있으면 실제로 돈 것으로 보고 따라간다 */
+export const HEADING_SPIKE_DEG = 45;
+const SMOOTHING = HEADING_SMOOTHING;
 
 interface OrientationEventLike {
   alpha: number | null;
@@ -49,6 +55,12 @@ export function readCompassHeading(event: OrientationEventLike, screenAngle: num
   return normalizeDegrees(heading + screenAngle);
 }
 
+/** 두 각도의 원형 차이 (절댓값, 0 이상 180 이하) */
+function angularDistance(a: number, b: number): number {
+  const d = normalizeDegrees(a - b);
+  return d > 180 ? 360 - d : d;
+}
+
 /** 두 각도 사이를 원형으로 보간한다 */
 export function smoothHeading(previous: number | null, next: number, factor = SMOOTHING): number {
   if (previous === null) return next;
@@ -60,6 +72,8 @@ export function smoothHeading(previous: number | null, next: number, factor = SM
 export function createHeadingSource(env: HeadingEnvironment): HeadingSource {
   let onChange: ((status: HeadingStatus) => void) | null = null;
   let smoothed: number | null = null;
+  // 크게 튄 값 하나를 보류해 둔다. 다음 값이 확인해 주면 따라간다
+  let spikeHeld = false;
   let lastEmitted: HeadingStatus | null = null;
   let detectTimer: unknown = null;
   let listening = false;
@@ -84,6 +98,11 @@ export function createHeadingSource(env: HeadingEnvironment): HeadingSource {
       env.clearTimeout(detectTimer);
       detectTimer = null;
     }
+    if (smoothed !== null && angularDistance(heading, smoothed) > HEADING_SPIKE_DEG && !spikeHeld) {
+      spikeHeld = true;
+      return;
+    }
+    spikeHeld = false;
     smoothed = smoothHeading(smoothed, heading);
     emit({ kind: 'available', heading: Math.round(smoothed * 10) / 10 });
   };

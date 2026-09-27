@@ -59,10 +59,10 @@ Sunflower는 현재 위치에서 해를 바라보려면 어느 방향을 봐야 
 - 프로젝트 아이디어 확정
 - 과제 4와 과제 5에 활용할 계획 수립
 - 기본 문서 및 폴더 구조 세팅 중
-- 공개 API 확정: 주 API는 USNO celnav, 교차 검증용은 NASA JPL Horizons (D003)
+- 공개 API 확정: USNO celnav (D003). JPL Horizons 교차 검증은 제외 (D009)
 - 외부 API 호출 횟수는 최대한 줄인다 (D004)
 - 기술 스택 확정: Vite + TypeScript (UI 프레임워크 없음), Vitest, localStorage (D006)
-- 배포처와 Horizons 프록시 미확정 (교차 검증이 필요해지는 시점 또는 배포 시점에 결정)
+- 배포처: Vercel (D008)
 - 기능 구현 진행 중 (진행 상황과 남은 작업: `docs/IMPLEMENTATION.md`)
 - Vitest 단위 테스트 작성 중 (`npm test`)
 

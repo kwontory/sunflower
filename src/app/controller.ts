@@ -48,6 +48,8 @@ export interface Controller {
   requestHeading(): Promise<void>;
   retryLocation(): Promise<void>;
   handleVisibilityChange(): void;
+  /** 위치 권한 상태가 바뀌었을 때 (권한 창에서 허용을 누른 경우 등) */
+  handleLocationPermission(state: 'granted' | 'denied' | 'prompt'): void;
   exportRecords(): string;
   getState(): AppState;
 }
@@ -197,7 +199,17 @@ export function createController(deps: ControllerDeps): Controller {
     return inFlight;
   };
 
-  const locateAndLoad = async (trigger: Trigger) => {
+  // 위치 요청이 겹치지 않게 한다 (권한 변경 알림과 버튼이 동시에 올 수 있다)
+  let locating: Promise<void> | null = null;
+  const locateAndLoad = (trigger: Trigger): Promise<void> => {
+    if (locating) return locating;
+    locating = locateOnce(trigger).finally(() => {
+      locating = null;
+    });
+    return locating;
+  };
+
+  const locateOnce = async (trigger: Trigger) => {
     const located = await deps.requestLocation();
     if (!located.ok) {
       coords = null;
@@ -263,12 +275,20 @@ export function createController(deps: ControllerDeps): Controller {
       }
       startClock();
       publish({ data: withFreshness(state.data) });
-      if (!coords) return;
+      if (!coords) {
+        // 설정에서 위치 권한을 바꾸고 돌아왔을 수 있으므로 다시 시도한다
+        if (state.data.kind === 'no-location') void locateAndLoad('manual');
+        return;
+      }
       if (shouldFetchOnVisible(lastSuccessAt, deps.now())) {
         void fetchSun('auto');
       } else if (lastSuccessAt) {
         scheduleRefresh(nextAutoRefreshAt(lastSuccessAt, consecutiveFailures));
       }
+    },
+
+    handleLocationPermission(permission) {
+      if (permission === 'granted' && !coords) void locateAndLoad('initial');
     },
 
     exportRecords() {

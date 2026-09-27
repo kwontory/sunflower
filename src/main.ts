@@ -6,10 +6,11 @@ import '@fontsource/ibm-plex-sans-kr/700.css';
 import '@fontsource/sora/600.css';
 import './styles.css';
 import { createController } from './app/controller';
-import { requestLocation } from './sensors/location';
+import { requestLocation, watchLocationPermission } from './sensors/location';
 import { browserHeadingEnvironment, createHeadingSource } from './sensors/heading';
 import { createStore } from './storage/store';
 import { render } from './ui/render';
+import './sw-register'; // 배포 빌드에서 오프라인용 서비스 워커 등록
 
 const root = document.getElementById('app');
 if (!root) throw new Error('#app 요소가 없습니다');
@@ -54,4 +55,8 @@ const controller = createController({
 });
 
 document.addEventListener('visibilitychange', () => controller.handleVisibilityChange());
+// 권한 창에서 "허용"을 누른 순간 위치를 다시 요청한다
+watchLocationPermission(navigator.permissions as Parameters<typeof watchLocationPermission>[0], (state) =>
+  controller.handleLocationPermission(state),
+);
 void controller.start();

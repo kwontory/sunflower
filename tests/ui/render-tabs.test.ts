@@ -84,9 +84,11 @@ describe('상태 탭', () => {
     expect(items[1].querySelector('.pill-error')!.textContent).toBe('실패');
     expect(items[1].textContent).toContain('응답이 늦어지고 있어요');
     expect(items[2].querySelector('.pill-fresh')!.textContent).toBe('성공');
-    expect(root.querySelector('.card-policy.hide-mobile')).not.toBeNull();
-    const cross = buttonByText(root, 'JPL Horizons로 교차 검증 · 배포 방식 결정 후')!;
-    expect(cross.disabled).toBe(true);
+    // 호출 정책은 사용자에게 필요 없는 정보라 표시하지 않는다
+    expect(root.querySelector('.card-policy')).toBeNull();
+    expect(text()).not.toContain('호출 정책');
+    // Horizons 교차 검증은 제외했다 (D009)
+    expect(text()).not.toContain('Horizons');
   });
 
   it('실패 상태와 방향 감지 안 됨', () => {

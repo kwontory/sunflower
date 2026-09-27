@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { HeadingStatus } from '../../src/types';
 import {
   HEADING_DETECT_TIMEOUT_MS,
+  HEADING_MIN_CHANGE_DEG,
+  HEADING_SMOOTHING,
   createHeadingSource,
   readCompassHeading,
   smoothHeading,
@@ -112,6 +114,42 @@ describe('createHeadingSource', () => {
     dispatch('deviceorientationabsolute', { alpha: 360 - 100, absolute: true });
     dispatch('deviceorientationabsolute', { alpha: 360 - 100.5, absolute: true });
     expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('같은 방향이 계속 오면 그 값으로 수렴한다', () => {
+    const { env, dispatch } = fakeEnv();
+    const statuses: HeadingStatus[] = [];
+    createHeadingSource(env).start((s) => statuses.push(s));
+    dispatch('deviceorientation', { alpha: 0, webkitCompassHeading: 100 });
+    for (let i = 0; i < 60; i++) dispatch('deviceorientation', { alpha: 0, webkitCompassHeading: 130 });
+    const last = statuses.at(-1) as Extract<HeadingStatus, { kind: 'available' }>;
+    expect(Math.abs(last.heading - 130)).toBeLessThan(HEADING_MIN_CHANGE_DEG + 0.1);
+    // 한 번에 건너뛰지 않고 여러 단계로 따라간다
+    expect(statuses.length).toBeGreaterThan(3);
+  });
+
+  it('작은 흔들림은 걸러서 거의 움직이지 않는다', () => {
+    const { env, dispatch } = fakeEnv();
+    const statuses: HeadingStatus[] = [];
+    createHeadingSource(env).start((s) => statuses.push(s));
+    for (let i = 0; i < 40; i++) dispatch('deviceorientation', { alpha: 0, webkitCompassHeading: i % 2 ? 103 : 97 });
+    const values = statuses.map((s) => (s as { heading: number }).heading);
+    expect(Math.max(...values) - Math.min(...values)).toBeLessThan(3);
+  });
+
+  it('한 번 튀는 값은 버리고, 계속 오면 따라간다', () => {
+    const { env, dispatch } = fakeEnv();
+    const statuses: HeadingStatus[] = [];
+    createHeadingSource(env).start((s) => statuses.push(s));
+    dispatch('deviceorientation', { alpha: 0, webkitCompassHeading: 100 });
+    dispatch('deviceorientation', { alpha: 0, webkitCompassHeading: 280 });
+    dispatch('deviceorientation', { alpha: 0, webkitCompassHeading: 100 });
+    expect(statuses).toEqual([{ kind: 'available', heading: 100 }]);
+
+    dispatch('deviceorientation', { alpha: 0, webkitCompassHeading: 200 });
+    dispatch('deviceorientation', { alpha: 0, webkitCompassHeading: 200 });
+    const last = statuses.at(-1) as { heading: number };
+    expect(last.heading).toBeCloseTo(100 + 100 * HEADING_SMOOTHING, 1);
   });
 
   it('stop 후에는 이벤트를 듣지 않는다', () => {

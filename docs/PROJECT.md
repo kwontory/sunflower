@@ -54,12 +54,11 @@
 
 ## 현재 상태
 
-기획만 완료.
+기능 구현 진행 중. (`docs/IMPLEMENTATION.md`)
 
 공개 API는 확정했다. (D003, D004)
 
 - 주 API: USNO celnav (태양 방위각·고도)
-- 교차 검증용: NASA JPL Horizons (필요할 때만)
 - 외부 API 호출 횟수는 최대한 줄인다.
 
 기술 스택은 확정했다. (D006)
@@ -68,4 +67,4 @@
 - 테스트: Vitest (Playwright E2E는 나중에 추가)
 - 저장소: localStorage (필요 시 IndexedDB)
 
-아직 UI 구조, 배포처, Horizons 프록시는 최종 확정되지 않았다.
+UI 구조(D007)와 배포처(Vercel, D008)도 확정했다. JPL Horizons 교차 검증은 제외했다. (D009)

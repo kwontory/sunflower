@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { requestLocation } from '../../src/sensors/location';
+import { describe, expect, it, vi } from 'vitest';
+import { requestLocation, watchLocationPermission } from '../../src/sensors/location';
 
 // 공개 장소(서울시청) 좌표만 사용한다
 const CITY_HALL = { latitude: 37.5663, longitude: 126.9779 };
@@ -40,5 +40,24 @@ describe('requestLocation', () => {
   it('범위를 벗어난 좌표는 unavailable', async () => {
     const result = await requestLocation(fakeGeolocation({ coords: { latitude: 200, longitude: 0 } }));
     expect(result).toEqual({ ok: false, error: 'unavailable' });
+  });
+});
+
+describe('watchLocationPermission', () => {
+  it('권한 상태가 바뀌면 알린다', async () => {
+    const status: { state: string; onchange: (() => void) | null } = { state: 'prompt', onchange: null };
+    const onChange = vi.fn();
+    watchLocationPermission({ query: async () => status }, onChange);
+    await Promise.resolve();
+    await Promise.resolve();
+    status.state = 'granted';
+    status.onchange?.();
+    expect(onChange).toHaveBeenCalledWith('granted');
+  });
+
+  it('Permissions API가 없거나 조회가 실패해도 오류 없이 넘어간다', async () => {
+    expect(() => watchLocationPermission(undefined, () => {})).not.toThrow();
+    watchLocationPermission({ query: () => Promise.reject(new TypeError('unsupported')) }, () => {});
+    await Promise.resolve();
   });
 });

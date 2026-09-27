@@ -44,8 +44,6 @@ export const T = {
   heading: '향한 방향',
   requestLog: '요청 기록',
   requestLogEmpty: '아직 요청 기록이 없어요',
-  policy: '호출 정책',
-  crossCheck: 'JPL Horizons로 교차 검증 · 배포 방식 결정 후',
   fetchedAt: '조회 시각',
   nextRefresh: '다음 자동 갱신',
   nextAttempt: '다음 시도',

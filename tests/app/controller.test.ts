@@ -31,6 +31,7 @@ function reading(fetchedAt: Date, coords: Coordinates = SEOUL_CITY_HALL): SunRea
 function setup(options: {
   fetch?: typeof fetch;
   location?: Result<Coordinates, LocationFailure>;
+  locate?: () => Promise<Result<Coordinates, LocationFailure>>;
   lastGood?: SunReading;
   visible?: boolean;
 } = {}) {
@@ -71,7 +72,7 @@ function setup(options: {
     },
     isVisible: () => visible,
     store,
-    requestLocation: async () => options.location ?? { ok: true, value: SEOUL_CITY_HALL },
+    requestLocation: options.locate ?? (async () => options.location ?? { ok: true, value: SEOUL_CITY_HALL }),
     heading,
     onState: (s) => states.push(s),
   });
@@ -246,6 +247,59 @@ describe('controller', () => {
     await t.advance(HEADING_RENDER_INTERVAL_MS);
     expect(t.states.length).toBe(before + 1);
     expect(t.last().heading).toEqual({ kind: 'available', heading: 120 });
+  });
+
+  it('권한 창을 기다리다 위치 요청이 실패해도, 허용되는 순간 다시 시도한다', async () => {
+    const results: Array<Result<Coordinates, LocationFailure>> = [
+      { ok: false, error: 'unavailable' }, // 권한 창을 기다리다 시간 초과
+      { ok: true, value: SEOUL_CITY_HALL },
+    ];
+    const locate = vi.fn(async () => results.shift()!);
+    const t = setup({ locate });
+    await t.controller.start();
+    expect(t.last().data.kind).toBe('no-location');
+
+    t.controller.handleLocationPermission('granted');
+    await vi.waitFor(() => expect(t.last().data.kind).toBe('fresh'));
+    expect(locate).toHaveBeenCalledTimes(2);
+  });
+
+  it('이미 위치가 있으면 권한 변경 알림으로 다시 요청하지 않는다', async () => {
+    const locate = vi.fn(async (): Promise<Result<Coordinates, LocationFailure>> => ({ ok: true, value: SEOUL_CITY_HALL }));
+    const t = setup({ locate });
+    await t.controller.start();
+    t.controller.handleLocationPermission('granted');
+    await t.advance(0);
+    expect(locate).toHaveBeenCalledTimes(1);
+  });
+
+  it('위치가 없는 상태에서 앱으로 돌아오면 위치를 다시 요청한다', async () => {
+    const results: Array<Result<Coordinates, LocationFailure>> = [
+      { ok: false, error: 'denied' },
+      { ok: true, value: SEOUL_CITY_HALL },
+    ];
+    const locate = vi.fn(async () => results.shift()!);
+    const t = setup({ locate });
+    await t.controller.start();
+    t.setVisible(false);
+    t.controller.handleVisibilityChange();
+    t.setVisible(true);
+    t.controller.handleVisibilityChange();
+    await vi.waitFor(() => expect(t.last().data.kind).toBe('fresh'));
+    expect(locate).toHaveBeenCalledTimes(2);
+  });
+
+  it('위치 요청이 진행 중이면 겹쳐서 요청하지 않는다', async () => {
+    let release: (v: Result<Coordinates, LocationFailure>) => void = () => {};
+    const locate = vi.fn(() => new Promise<Result<Coordinates, LocationFailure>>((r) => (release = r)));
+    const t = setup({ locate });
+    const started = t.controller.start();
+    await Promise.resolve();
+    t.controller.handleLocationPermission('granted');
+    void t.controller.retryLocation();
+    expect(locate).toHaveBeenCalledTimes(1);
+    release({ ok: true, value: SEOUL_CITY_HALL });
+    await started;
   });
 
   it('탭 전환', async () => {
