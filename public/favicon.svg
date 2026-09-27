@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- 워드마크(sunflower)의 호박색 o를 모티프로 한 아이콘 -->
+  <rect width="64" height="64" rx="14" fill="#F6F2E8"/>
+  <circle cx="32" cy="32" r="17" fill="none" stroke="#B8680A" stroke-width="9"/>
+</svg>
