@@ -336,3 +336,29 @@ USNO 값은 조사 단계에서 Horizons와 소수 셋째 자리까지 일치했
 재방문 시 기기가 위치를 새로 잡는 동안(수 초~수십 초) 화면이 멈춘 것처럼 보였다.
 해의 방향은 수 km 이동해도 0.1° 수준으로만 달라지므로 이전 반올림 좌표로 먼저 보여줘도 안내에 영향이 거의 없다.
 새로 저장하는 정보는 없고, 이미 저장된 반올림 좌표만 사용한다.
+
+---
+
+## D011 — 운영 주소와 보안 헤더
+
+날짜: 2026.09.27
+
+결정:
+
+- 운영 대표 주소는 `https://sunflower-gamma-two.vercel.app`로 한다.
+- 배포 응답에 보안 헤더를 붙인다. (`vercel.json`)
+  - `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'` — 다른 사이트가 앱을 iframe으로 끼워 넣지 못하게 한다.
+  - `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`
+  - `Permissions-Policy` — 위치·방향 센서는 이 사이트에서만 쓰고, 카메라·마이크 등은 쓰지 않는다.
+  - `Cross-Origin-Opener-Policy: same-origin`
+  - `Access-Control-Allow-Origin`은 Vercel 기본값(`*`) 대신 운영 대표 주소만 허용한다.
+  - `/sw.js`는 `Cache-Control: no-cache`로 새 배포가 바로 반영되게 한다.
+- 페이지 안의 보안 정책(CSP)에서 개발용으로 넣었던 WebSocket 허용(`ws: wss:`)을 없앤다. 외부 연결은 USNO만 허용한다.
+
+판단:
+나
+
+이유:
+전체 보안 점검에서 클릭재킹 방지 설정이 없고, CSP의 연결 허용 범위가 필요 이상으로 넓은 것을 확인했다.
+`<meta>` CSP는 `frame-ancestors`를 지원하지 않아 응답 헤더로만 막을 수 있다.
+앱을 다른 출처에서 불러갈 일이 없으므로 교차 출처 허용도 운영 주소로 좁힌다.

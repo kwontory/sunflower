@@ -5,9 +5,10 @@
 
 ## 접속
 
-- 배포 주소: Vercel 대시보드의 `sunflower` 프로젝트에서 확인한다.
-- 현재 배포에는 Vercel 로그인 보호(Deployment Protection)가 켜져 있다.
-  기기 브라우저에서 Vercel 계정으로 로그인하면 열린다.
+- 운영 대표 주소: https://sunflower-gamma-two.vercel.app — **공개** (로그인 없이 누구나 열 수 있음)
+- 배포마다 생기는 고유 주소(미리보기 포함)와 Vercel 계정 이름이 붙은 보조 주소는
+  Vercel 로그인 보호(Deployment Protection, Standard Protection)가 걸려 있다. Vercel 계정으로 로그인해야 열린다.
+- 운영 배포 전 확인은 미리보기 주소(로그인 필요)에서 한다.
 
 ## 개인정보 주의
 
