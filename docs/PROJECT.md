@@ -62,4 +62,10 @@
 - 교차 검증용: NASA JPL Horizons (필요할 때만)
 - 외부 API 호출 횟수는 최대한 줄인다.
 
-아직 기술 스택과 UI 구조는 최종 확정되지 않았다.
+기술 스택은 확정했다. (D006)
+
+- 화면: Vite + TypeScript (UI 프레임워크 없음)
+- 테스트: Vitest (Playwright E2E는 나중에 추가)
+- 저장소: localStorage (필요 시 IndexedDB)
+
+아직 UI 구조, 배포처, Horizons 프록시는 최종 확정되지 않았다.

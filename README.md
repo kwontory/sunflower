@@ -30,3 +30,11 @@
 - 교차 검증용: [NASA JPL Horizons API](https://ssd-api.jpl.nasa.gov/doc/horizons.html) (필요할 때만 사용)
 
 결정 배경은 `docs/DECISIONS.md`의 D003, D004를 참고한다.
+
+## 기술 스택
+
+- 화면: Vite + TypeScript (UI 프레임워크 없음)
+- 테스트: Vitest
+- 저장소: localStorage
+
+결정 배경은 `docs/DECISIONS.md`의 D006을 참고한다.
