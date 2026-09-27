@@ -19,10 +19,15 @@ export interface SunVisibilityState {
   message: string;
 }
 
+/** 지평선 이하 판정: 고도 0° 이하 (과제 5 고정 검사 SF05-02·03 기준). 화면의 모든 판정은 이 함수를 쓴다 */
+export function isBelowHorizon(altitude: number): boolean {
+  return altitude <= 0;
+}
+
 export function getSunVisibilityState(
   input: SunVisibilityInput,
 ): SunVisibilityState {
-  const belowHorizon = input.altitude <= 0;
+  const belowHorizon = isBelowHorizon(input.altitude);
   const allowDirectionGuidance = !belowHorizon;
   return {
     belowHorizon,

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { getSunReading } from '../../src/api/sun';
-import { SEOUL_CITY_HALL, celnavBody, jsonResponse } from './fixtures';
+import { SEOUL_CITY_HALL, celnavBody, celnavNightBody, jsonResponse } from './fixtures';
 
 const AT = new Date('2026-09-27T03:00:00Z');
 const NOW = new Date('2026-09-27T03:00:01.250Z');
@@ -16,11 +16,33 @@ describe('getSunReading', () => {
     expect(r).toEqual({
       ok: true,
       value: {
-        position: { azimuth: 170.868399, altitude: 50.463113 },
-        coords: { latitude: 37.57, longitude: 126.98 },
-        observedAt: '2026-09-27T03:00:00.000Z',
-        fetchedAt: '2026-09-27T03:00:01.250Z',
-        source: 'USNO',
+        kind: 'reading',
+        reading: {
+          position: { azimuth: 170.868399, altitude: 50.463113 },
+          coords: { latitude: 37.57, longitude: 126.98 },
+          observedAt: '2026-09-27T03:00:00.000Z',
+          fetchedAt: '2026-09-27T03:00:01.250Z',
+          source: 'USNO',
+        },
+      },
+    });
+  });
+
+  it('정상 응답에 Sun 항목이 없으면 실패가 아니라 sun-absent를 돌려준다', async () => {
+    const r = await getSunReading(SEOUL_CITY_HALL, AT, {
+      fetch: fakeFetch(async () => jsonResponse(celnavNightBody())),
+      now: () => NOW,
+    });
+    expect(r).toEqual({
+      ok: true,
+      value: {
+        kind: 'sun-absent',
+        check: {
+          coords: { latitude: 37.57, longitude: 126.98 },
+          observedAt: '2026-09-27T03:00:00.000Z',
+          fetchedAt: '2026-09-27T03:00:01.250Z',
+          source: 'USNO',
+        },
       },
     });
   });
@@ -35,7 +57,7 @@ describe('getSunReading', () => {
   });
 
   it('HTTP 200이어도 검증에 실패하면 ok가 아니다', async () => {
-    for (const body of [{ error: 'bad date' }, celnavBody(null), celnavBody({ zn: 400, hc: 10 })]) {
+    for (const body of [{ error: 'bad date' }, { properties: { data: [] } }, celnavBody({ zn: 400, hc: 10 })]) {
       const r = await getSunReading(SEOUL_CITY_HALL, AT, {
         fetch: fakeFetch(async () => jsonResponse(body)),
         now: () => NOW,

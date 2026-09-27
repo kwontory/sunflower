@@ -28,6 +28,24 @@ export interface SunReading {
   source: 'USNO';
 }
 
+/**
+ * USNO가 HTTP 200·정상 구조로 응답했지만 Sun 항목이 없는 조회 결과.
+ * 해가 지평선보다 충분히 낮은 시간대(심야)에 USNO는 Sun을 응답에서 뺀다. 실패가 아니다.
+ */
+export interface SunAbsentCheck {
+  coords: Coordinates;
+  /** API에 요청한 관측 시각 (ISO 8601, UTC) */
+  observedAt: string;
+  /** 응답을 받은 시각 (ISO 8601, UTC) */
+  fetchedAt: string;
+  source: 'USNO';
+}
+
+/** 검증을 통과한 조회 결과: 해 위치를 받았거나, 해가 지평선 아래라 Sun 항목이 없음 */
+export type SunLookup =
+  | { kind: 'reading'; reading: SunReading }
+  | { kind: 'sun-absent'; check: SunAbsentCheck };
+
 /** 외부 API 실패 종류. 과제 4 실패 5종과의 최종 대응은 구현 단계에서 확정한다 (D007). */
 export type FetchFailureKind =
   | 'timeout'
@@ -66,13 +84,15 @@ export type DataStatus =
   | { kind: 'cached'; reading: SunReading }
   | { kind: 'stale'; reading: SunReading }
   | { kind: 'failed'; failure: FetchFailure; lastGood: SunReading | null; nextAttemptAt: string | null }
+  /** USNO 응답에 Sun 항목이 없음 (해가 지평선 아래). lastGood은 참고용으로만 보여준다 */
+  | { kind: 'sun-absent'; checkedAt: string; lastGood: SunReading | null }
   | { kind: 'no-location'; reason: 'denied' | 'unavailable' };
 
 /** 요청 기록 한 줄 (상태 탭 표시용) */
 export interface RequestLogEntry {
   at: string;
   trigger: 'auto' | 'manual' | 'initial';
-  outcome: 'success' | 'failure' | 'cache-hit';
+  outcome: 'success' | 'sun-absent' | 'failure' | 'cache-hit';
   attempts: number;
   failure?: FetchFailure;
 }

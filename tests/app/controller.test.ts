@@ -4,7 +4,7 @@ import type { LocationFailure } from '../../src/sensors/location';
 import type { HeadingSource } from '../../src/sensors/heading';
 import { HEADING_RENDER_INTERVAL_MS, createController } from '../../src/app/controller';
 import { createStore } from '../../src/storage/store';
-import { SEOUL_CITY_HALL, celnavBody, jsonResponse } from '../api/fixtures';
+import { SEOUL_CITY_HALL, celnavBody, celnavNightBody, jsonResponse } from '../api/fixtures';
 
 const MINUTE = 60_000;
 const START = new Date('2026-09-27T03:00:00.000Z'); // 12:00 KST
@@ -157,6 +157,65 @@ describe('controller', () => {
     expect(t.fetchMock).toHaveBeenCalledTimes(1);
     const data = t.last().data;
     expect(data.kind === 'failed' && data.failure.kind).toBe('invalid-data');
+  });
+
+  describe('해가 지평선 아래라 Sun 항목이 없는 응답 (T30)', () => {
+    it('실패로 세지 않고 해 없음 상태가 되며, 마지막 정상값과 기록은 그대로 둔다', async () => {
+      const lastGood = reading(new Date(START.getTime() - 6 * 60 * MINUTE));
+      const t = setup({ lastGood, fetch: async () => jsonResponse(celnavNightBody()) });
+      await t.controller.start();
+
+      expect(t.fetchMock).toHaveBeenCalledTimes(1);
+      const state = t.last();
+      expect(state.data.kind).toBe('sun-absent');
+      if (state.data.kind === 'sun-absent') {
+        expect(state.data.lastGood?.fetchedAt).toBe(lastGood.fetchedAt);
+        expect(state.data.checkedAt).toBe(START.toISOString());
+      }
+      expect(state.requestLog[0]).toMatchObject({ outcome: 'sun-absent', attempts: 1 });
+      // 실패 백오프 없이 5분 뒤 자동 갱신
+      expect(new Date(state.nextRefreshAt!).getTime() - new Date(state.now).getTime()).toBe(5 * MINUTE);
+      expect(t.store.loadLastGood()?.fetchedAt).toBe(lastGood.fetchedAt);
+      expect(t.store.loadDailyRecords()).toHaveLength(0);
+    });
+
+    it('해 없음이 이어져도 간격은 5분이고, 해가 뜨면 실시간 값으로 바뀐다', async () => {
+      let sunUp = false;
+      const t = setup({ fetch: async () => jsonResponse(sunUp ? celnavBody() : celnavNightBody()) });
+      await t.controller.start();
+      await t.advance(5 * MINUTE);
+      expect(t.fetchMock).toHaveBeenCalledTimes(2);
+      expect(t.last().data.kind).toBe('sun-absent');
+
+      sunUp = true;
+      await t.advance(5 * MINUTE);
+      expect(t.fetchMock).toHaveBeenCalledTimes(3);
+      expect(t.last().data.kind).toBe('fresh');
+    });
+
+    it('해 없음 상태에서 60초 안에 새로고침해도 마지막 정상값으로 바꾸지 않는다', async () => {
+      const lastGood = reading(new Date(START.getTime() - 10 * MINUTE));
+      const t = setup({ lastGood, fetch: async () => jsonResponse(celnavNightBody()) });
+      await t.controller.start();
+      await t.advance(10_000);
+      await t.controller.refresh();
+      expect(t.fetchMock).toHaveBeenCalledTimes(1);
+      expect(t.last().data.kind).toBe('sun-absent');
+    });
+  });
+
+  it('실패 직후 60초 안에 새로고침해도 실패 상태를 마지막 정상값으로 가리지 않는다', async () => {
+    const lastGood = reading(new Date(START.getTime() - 10 * MINUTE));
+    const t = setup({ lastGood, fetch: async () => Promise.reject(new TypeError('Failed to fetch')) });
+    await t.controller.start();
+    expect(t.last().data.kind).toBe('failed');
+    const calls = t.fetchMock.mock.calls.length;
+
+    await t.controller.refresh();
+    expect(t.fetchMock).toHaveBeenCalledTimes(calls);
+    const data = t.last().data;
+    expect(data.kind).toBe('failed');
+    if (data.kind === 'failed') expect(data.lastGood?.fetchedAt).toBe(lastGood.fetchedAt);
   });
 
   it('같은 위치에서 5분 안에 받은 값이 있으면 호출하지 않고 최근 값으로 보여준다', async () => {

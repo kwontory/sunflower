@@ -50,6 +50,15 @@ export function formatDegrees(n: number): string {
   return `${round1(n).toFixed(1)}°`;
 }
 
+/**
+ * 고도: 기본은 소수 첫째 자리. 0이 아닌데 반올림하면 0.0이 되는 값은 둘째 자리까지 보여줘
+ * 지평선 위(0.04°)와 이하(-0.04°)가 같은 숫자로 보이지 않게 한다.
+ */
+export function formatAltitude(n: number): string {
+  if (n !== 0 && round1(n) === 0) return `${(Math.round(n * 100) / 100).toFixed(2)}°`;
+  return formatDegrees(n);
+}
+
 /** 변화량: "+0.2°", "−0.4°"(U+2212), "0.0°" */
 export function formatSignedDegrees(n: number): string {
   const r = round1(n);

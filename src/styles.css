@@ -19,6 +19,11 @@
   --error-bg: #f6e1dc;
   --neutral-fg: #5c5447;
   --neutral-bg: #efe8da;
+  --night-fg: #33386b;
+  --night-bg: #e4e5f2;
+  --night-sky: #262a4d;
+  --night-moon: #f3e2a4;
+  --night-star: #d9d6c3;
 
   --radius-card: 12px;
   --radius-sm: 8px;
@@ -240,6 +245,7 @@ select:focus-visible {
 .pill-stale { color: var(--stale-fg); background: var(--stale-bg); }
 .pill-error { color: var(--error-fg); background: var(--error-bg); }
 .pill-neutral { color: var(--neutral-fg); background: var(--neutral-bg); }
+.pill-night { color: var(--night-fg); background: var(--night-bg); }
 
 /* ---------- 버튼 ---------- */
 
@@ -323,7 +329,9 @@ select:focus-visible {
 .dial-arc { fill: none; stroke: var(--accent-arc); stroke-width: 4; stroke-linecap: round; }
 .dial-sunline { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 4 4; }
 .dial-center { fill: var(--ink); }
-.dial-sun.is-below { opacity: 0.45; }
+.night-sky { fill: var(--night-sky); }
+.night-moon { fill: var(--night-moon); }
+.night-star { fill: var(--night-star); }
 
 .values {
   display: flex;
@@ -523,8 +531,8 @@ select:focus-visible {
 
 .log-item {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-wrap: nowrap;
+  align-items: baseline;
   gap: 6px 10px;
   padding: 10px 0;
   border-top: 1px solid var(--line-soft);
@@ -532,11 +540,20 @@ select:focus-visible {
 }
 
 .log-time {
+  flex-shrink: 0;
   font-weight: 600;
   min-width: 3.2em;
 }
 
+.log-item .pill {
+  flex-shrink: 0;
+}
+
+/* 시각·배지는 한 줄로 고정하고, 설명은 자르지 않고 남은 폭 안에서 줄바꿈해 모두 보여준다 */
 .log-detail {
+  min-width: 0;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
   color: var(--muted);
 }
 

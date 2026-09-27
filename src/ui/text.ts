@@ -1,7 +1,8 @@
 // 화면 문구. 설계 용어 → 화면 표기 변환은 이 파일에서만 한다 (D007).
 import type { FetchFailure, RequestLogEntry, SunPosition, Tab } from '../types';
 import { compassPoint, type Turn } from '../core/direction';
-import { formatDegrees, formatWholeDegrees } from './format';
+import { isBelowHorizon } from '../core/sun-visibility';
+import { formatAltitude, formatDegrees, formatWholeDegrees } from './format';
 
 export const TAB_LABELS: Record<Tab, string> = {
   now: '지금',
@@ -60,6 +61,10 @@ export const T = {
   nextAttempt: '다음 시도',
   untilStale: '오래된 값 표시까지',
   sourceLabel: '출처',
+  sunAbsentTitle: '지금은 해가 지평선 아래에 있어요',
+  sunAbsentBody: '해가 뜨면 다시 방향을 알려드릴게요',
+  sunAbsentStatus: '해가 지평선 아래에 있어요',
+  lastGoodNoGuide: '마지막으로 받은 값으로는 방향을 안내하지 않아요',
 } as const;
 
 export function freshPill(elapsed: string): string {
@@ -70,6 +75,10 @@ export function cachedPill(elapsed: string): string {
 }
 export function stalePill(elapsed: string): string {
   return `오래된 값 · ${elapsed}`;
+}
+/** 해가 지평선 아래라 USNO가 Sun 항목을 주지 않은 상태 */
+export function nightPill(elapsed: string): string {
+  return `지평선 아래 · ${elapsed} 확인`;
 }
 
 /** 외부 요청 실패 원인별 안내 문장 */
@@ -97,8 +106,18 @@ export function facingHeadline(azimuth: number): string {
 }
 
 export function sunSub(position: SunPosition): string {
-  if (position.altitude <= 0) return `해가 지평선 아래에 있어요 (고도 ${formatDegrees(position.altitude)})`;
-  return `해는 ${compassPoint(position.azimuth)}쪽, 지평선 위 ${formatDegrees(position.altitude)}에 있어요`;
+  if (isBelowHorizon(position.altitude)) return `해가 지평선 아래에 있어요 (고도 ${formatAltitude(position.altitude)})`;
+  return `해는 ${compassPoint(position.azimuth)}쪽, 지평선 위 ${formatAltitude(position.altitude)}에 있어요`;
+}
+
+/** 실패 중 마지막 정상값 설명: 과거 값임을 드러내고 방향 안내 문장으로 쓰지 않는다 */
+export function pastSunSub(position: SunPosition): string {
+  return `그때 해는 ${compassPoint(position.azimuth)}쪽, 지평선 위 ${formatAltitude(position.altitude)}에 있었어요`;
+}
+
+/** 표·목록의 고도 칸: "12.3°", "-18.0° · 지평선 이하" */
+export function altitudeCell(altitude: number): string {
+  return `${formatAltitude(altitude)}${isBelowHorizon(altitude) ? ' · 지평선 이하' : ''}`;
 }
 
 export function lastGoodLabel(kstTime: string): string {
@@ -121,6 +140,7 @@ export function headingActive(heading: number): string {
 export function outcomeLabel(outcome: RequestLogEntry['outcome']): string {
   if (outcome === 'success') return '성공';
   if (outcome === 'failure') return '실패';
+  if (outcome === 'sun-absent') return '지평선 아래';
   return '최근 값';
 }
 

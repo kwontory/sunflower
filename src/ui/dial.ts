@@ -27,8 +27,6 @@ export interface DialOptions {
   rotation?: number;
   /** false면 회전 애니메이션을 넣지 않는다. 기본값은 사용자의 동작 줄이기 설정을 따른다 */
   animate?: boolean;
-  /** 해가 지평선 아래일 때 흐리게 */
-  belowHorizon?: boolean;
   label: string;
   /** 그라데이션 id 접두어. 한 화면에 다이얼이 하나뿐이면 고정값을 줘서 다시 그려도 같은 결과가 나오게 한다 */
   idPrefix?: string;
@@ -71,8 +69,8 @@ function round(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-function buildSun(id: string, x: number, y: number, dim: boolean): SVGGElement {
-  const g = el('g', { transform: `translate(${x} ${y})`, class: dim ? 'dial-sun is-below' : 'dial-sun' });
+function buildSun(id: string, x: number, y: number): SVGGElement {
+  const g = el('g', { transform: `translate(${x} ${y})`, class: 'dial-sun' });
   g.append(el('circle', { r: 30, fill: `url(#${id}-glow)` }));
   const rays = el('g', { stroke: '#E8961A', 'stroke-linecap': 'round' });
   RAYS.forEach(([len, w], i) => {
@@ -127,7 +125,7 @@ export function buildDial(opts: DialOptions): SVGSVGElement {
   // 호가 생기거나 사라져도 다이얼 구조가 바뀌지 않도록 묶음은 항상 둔다.
   const arcLayer = el('g', { class: 'dial-arc-layer', 'data-morph': 'children' });
   svg.append(arcLayer);
-  if (headingUp && opts.sunAzimuth !== null && !opts.belowHorizon) {
+  if (headingUp && opts.sunAzimuth !== null) {
     const turn = computeTurn(opts.sunAzimuth, heading);
     if (turn.direction !== 'front') {
       const signed = turn.direction === 'right' ? turn.degrees : -turn.degrees;
@@ -162,7 +160,7 @@ export function buildDial(opts: DialOptions): SVGSVGElement {
   if (opts.sunAzimuth !== null) {
     const sun = polar(opts.sunAzimuth, 88);
     rotor.append(el('line', { x1: C, y1: C, x2: sun.x, y2: sun.y, class: 'dial-sunline' }));
-    rotor.append(buildSun(id, sun.x, sun.y, opts.belowHorizon === true));
+    rotor.append(buildSun(id, sun.x, sun.y));
   }
   svg.append(rotor);
 
@@ -171,5 +169,35 @@ export function buildDial(opts: DialOptions): SVGSVGElement {
     svg.append(el('path', { d: 'M141 8 L159 8 L150 22 Z', class: 'dial-notch' }));
   }
   svg.append(el('circle', { cx: C, cy: C, r: 3.5, class: 'dial-center' }));
+  return svg;
+}
+
+// 밤하늘에 흩어 놓은 별 [x, y, 반지름]
+const STARS: ReadonlyArray<readonly [number, number, number]> = [
+  [72, 92, 2.2], [98, 206, 1.6], [214, 78, 1.8], [232, 196, 2.4], [186, 236, 1.4], [60, 158, 1.4], [128, 60, 1.2],
+];
+
+export interface NightSkyOptions {
+  label: string;
+  /** 마스크 id 접두어. 다이얼과 같은 이유로 고정값을 준다 */
+  idPrefix?: string;
+}
+
+/**
+ * 해가 지평선 아래일 때 나침반 대신 보여주는 달 그림.
+ * 방위·회전 정보가 없는 장식이며 기기 방향에 따라 돌지 않는다 (방향 안내로 읽히지 않게).
+ * 실제 달의 위상·위치와는 관계없다.
+ */
+export function buildNightSky(opts: NightSkyOptions): SVGSVGElement {
+  const id = opts.idPrefix ?? `dial${++dialSeq}`;
+  const svg = el('svg', { viewBox: '0 0 300 300', role: 'img', 'aria-label': opts.label, class: 'dial dial-night' });
+  const defs = el('defs');
+  const mask = el('mask', { id: `${id}-moon-cut` });
+  mask.append(el('rect', { width: 300, height: 300, fill: '#fff' }), el('circle', { cx: 176, cy: 132, r: 50, fill: '#000' }));
+  defs.append(mask);
+  svg.append(defs);
+  svg.append(el('circle', { cx: C, cy: C, r: 136, class: 'night-sky' }));
+  for (const [x, y, r] of STARS) svg.append(el('circle', { cx: x, cy: y, r, class: 'night-star' }));
+  svg.append(el('circle', { cx: C, cy: C, r: 58, class: 'night-moon', mask: `url(#${id}-moon-cut)` }));
   return svg;
 }

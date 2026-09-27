@@ -6,6 +6,7 @@ import type {
   HeadingStatus,
   RequestLogEntry,
   Result,
+  SunAbsentCheck,
   SunReading,
   Tab,
 } from '../types';
@@ -72,6 +73,7 @@ export function createController(deps: ControllerDeps): Controller {
   let lastPermission: 'granted' | 'denied' | 'prompt' | null = null;
   let lastGood: SunReading | null = deps.store.loadLastGood();
   let lastRequestAt: Date | null = null;
+  /** 마지막으로 정상 응답(해 위치 또는 해 없음)을 받은 시각 */
   let lastSuccessAt: Date | null = lastGood ? new Date(lastGood.fetchedAt) : null;
   let consecutiveFailures = 0;
   let inFlight: Promise<void> | null = null;
@@ -172,6 +174,18 @@ export function createController(deps: ControllerDeps): Controller {
     scheduleRefresh(nextAutoRefreshAt(now, 0));
   };
 
+  /** 정상 응답인데 해가 지평선 아래라 Sun 항목이 없음: 실패로 세지 않고, 마지막 정상값과 기록은 그대로 둔다 */
+  const onSunAbsent = (check: SunAbsentCheck, trigger: Trigger, attempts: number) => {
+    const now = deps.now();
+    lastSuccessAt = now;
+    consecutiveFailures = 0;
+    publish({
+      data: { kind: 'sun-absent', checkedAt: check.fetchedAt, lastGood },
+      requestLog: log({ trigger, outcome: 'sun-absent', attempts }),
+    });
+    scheduleRefresh(nextAutoRefreshAt(now, 0));
+  };
+
   const onFailure = (failure: FetchFailure, trigger: Trigger, attempts: number) => {
     const now = deps.now();
     consecutiveFailures += 1;
@@ -203,8 +217,9 @@ export function createController(deps: ControllerDeps): Controller {
         );
         // 그사이 위치가 거부됐거나 다른 좌표로 바뀌었으면 이 결과는 쓰지 않는다
         if (!coords || !sameCoords(coords, target)) return;
-        if (result.ok) onSuccess(result.value, trigger, attempts);
-        else onFailure(result.error, trigger, attempts);
+        if (!result.ok) onFailure(result.error, trigger, attempts);
+        else if (result.value.kind === 'reading') onSuccess(result.value.reading, trigger, attempts);
+        else onSunAbsent(result.value.check, trigger, attempts);
       } finally {
         inFlight = null;
       }
@@ -297,9 +312,11 @@ export function createController(deps: ControllerDeps): Controller {
         return;
       }
       if (!canManualRefresh(lastRequestAt, deps.now())) {
-        // 60초 안의 재요청은 호출하지 않고 받아 둔 값을 보여준다
+        // 60초 안의 재요청은 호출하지 않는다. 실시간 값은 최근 값으로 보여주고,
+        // 실패·해 없음 상태는 그대로 둔다 (마지막 정상값으로 덮으면 실패가 가려진다)
+        const d = state.data;
         publish({
-          data: lastGood ? withFreshness({ kind: 'cached', reading: lastGood }) : state.data,
+          data: withFreshness(d.kind === 'fresh' ? { kind: 'cached', reading: d.reading } : d),
           requestLog: log({ trigger: 'manual', outcome: 'cache-hit', attempts: 0 }),
         });
         return;

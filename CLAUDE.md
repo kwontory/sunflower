@@ -59,6 +59,7 @@ Sunflower는 현재 위치에서 해를 바라보려면 어느 방향을 봐야 
 - 외부 API 호출 횟수는 최대한 줄인다 (D004)
 - 기술 스택 확정: Vite + TypeScript (UI 프레임워크 없음), Vitest, localStorage (D006)
 - 배포처: Vercel (D008)
+- 과제 4 제출, 과제 5 종료. 이후 일반 개선 작업 진행 중 (T30: 심야 해 없음 처리, D012)
 - 기능 구현 진행 중 (진행 상황과 남은 작업: `docs/IMPLEMENTATION.md`)
 - Vitest 단위 테스트 작성 중 (`npm test`)
 
@@ -82,7 +83,7 @@ git status
 
 ## 과제 5 고정 규칙
 
-과제 5가 시작된 뒤에는 다음 파일의 고정 검사 10개를 변경하지 않는다.
+과제 5는 종료됐다. 기록 보존을 위해 다음 파일의 고정 검사 10개는 계속 변경하지 않는다.
 
 - `tests/assignment5/fixed-checks.test.ts`
 - `docs/ASSIGNMENT_05_FIXED_CHECKS.md`

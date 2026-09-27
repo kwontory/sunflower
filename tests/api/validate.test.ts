@@ -1,17 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import { parseCelnavSun } from '../../src/api/validate';
-import { celnavBody } from './fixtures';
+import { celnavBody, celnavNightBody } from './fixtures';
 
 describe('parseCelnavSun', () => {
   it('Sun 항목의 zn·hc를 방위각·고도로 꺼낸다', () => {
     expect(parseCelnavSun(celnavBody())).toEqual({
       ok: true,
-      value: { azimuth: 170.868399, altitude: 50.463113 },
+      value: { kind: 'position', position: { azimuth: 170.868399, altitude: 50.463113 } },
     });
   });
 
-  it('Sun 항목이 없으면 invalid-response (Venus 값을 쓰지 않는다)', () => {
-    const r = parseCelnavSun(celnavBody(null));
+  it('다른 천체만 있고 Sun 항목이 없으면 실패가 아니라 absent (Venus 값을 쓰지 않는다)', () => {
+    expect(parseCelnavSun(celnavBody(null))).toEqual({ ok: true, value: { kind: 'absent' } });
+  });
+
+  it('심야 실제 응답 모양(달·항성만 있음)은 absent', () => {
+    expect(parseCelnavSun(celnavNightBody())).toEqual({ ok: true, value: { kind: 'absent' } });
+  });
+
+  it.each([
+    ['data가 빈 배열', { properties: { data: [] } }],
+    ['천체 이름 없음', { properties: { data: [{ almanac_data: { zn: 1, hc: 1 } }] } }],
+    ['almanac_data 없는 천체만 있음', { properties: { data: [{ object: 'Moon' }] } }],
+  ])('Sun 항목이 없고 다른 천체 항목도 정상이 아니면 invalid-response: %s', (_, json) => {
+    const r = parseCelnavSun(json);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.kind).toBe('invalid-response');
   });
@@ -64,11 +76,11 @@ describe('parseCelnavSun', () => {
   it('경계값은 통과하고 zn 360은 0으로 바꾼다', () => {
     expect(parseCelnavSun(celnavBody({ zn: 360, hc: 90 }))).toEqual({
       ok: true,
-      value: { azimuth: 0, altitude: 90 },
+      value: { kind: 'position', position: { azimuth: 0, altitude: 90 } },
     });
     expect(parseCelnavSun(celnavBody({ zn: 0, hc: -90 }))).toEqual({
       ok: true,
-      value: { azimuth: 0, altitude: -90 },
+      value: { kind: 'position', position: { azimuth: 0, altitude: -90 } },
     });
   });
 });

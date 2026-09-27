@@ -2,9 +2,10 @@
 import type { AppState, DailyRecord, DataStatus, HeadingStatus, RequestLogEntry, SunReading, Tab } from '../types';
 import { STALE_AFTER_MS } from '../config';
 import { compassPoint, computeTurn, normalizeDegrees } from '../core/direction';
-import { getSunVisibilityState } from '../core/sun-visibility';
-import { buildDial, unwrapRotation } from './dial';
+import { getSunVisibilityState, isBelowHorizon } from '../core/sun-visibility';
+import { buildDial, buildNightSky, unwrapRotation } from './dial';
 import {
+  formatAltitude,
   formatDegrees,
   formatElapsed,
   formatKstDateLabel,
@@ -15,6 +16,7 @@ import {
 import {
   T,
   TAB_LABELS,
+  altitudeCell,
   attemptsText,
   cachedPill,
   facingHeadline,
@@ -25,7 +27,9 @@ import {
   minutesLater,
   minutesLeft,
   nextAttemptText,
+  nightPill,
   outcomeLabel,
+  pastSunSub,
   sourceLine,
   stalePill,
   statusHeadline,
@@ -42,7 +46,7 @@ export interface UiHandlers {
   onExportRecords(): void;
 }
 
-type Tone = 'fresh' | 'cached' | 'stale' | 'error' | 'neutral';
+type Tone = 'fresh' | 'cached' | 'stale' | 'error' | 'neutral' | 'night';
 
 const TABS: Tab[] = ['now', 'records', 'status'];
 
@@ -94,6 +98,7 @@ function readingOf(data: DataStatus): { reading: SunReading; current: boolean } 
     case 'stale':
       return { reading: data.reading, current: true };
     case 'failed':
+    case 'sun-absent':
       return data.lastGood ? { reading: data.lastGood, current: false } : null;
     default:
       return null;
@@ -111,6 +116,8 @@ export function dataPill(state: AppState): { tone: Tone; text: string } {
       return { tone: 'stale', text: stalePill(formatElapsed(d.reading.fetchedAt, state.now)) };
     case 'failed':
       return { tone: 'error', text: failureMessage(d.failure) };
+    case 'sun-absent':
+      return { tone: 'night', text: nightPill(formatElapsed(d.checkedAt, state.now)) };
     case 'no-location':
       return { tone: 'neutral', text: T.headingOff };
     case 'loading':
@@ -187,19 +194,20 @@ function valueCards(reading: SunReading, dim: boolean, caption: string | null): 
       'div',
       { class: 'value-card' },
       h('div', { class: 'value-label', text: T.altitude }),
-      h('div', { class: 'value-num num', text: formatDegrees(altitude) }),
-      h('div', { class: 'value-sub', text: altitude <= 0 ? '지평선 이하' : '지평선 위' }),
+      h('div', { class: 'value-num num', text: formatAltitude(altitude) }),
+      h('div', { class: 'value-sub', text: isBelowHorizon(altitude) ? '지평선 이하' : '지평선 위' }),
     ),
   );
   wrap.append(grid);
   return wrap;
 }
 
-function sourceRow(state: AppState, reading: SunReading | null, handlers: UiHandlers): HTMLElement {
+/** fetchedAt: 이 화면의 기준이 된 조회 시각 (없으면 출처 줄을 그리지 않는다) */
+function sourceRow(state: AppState, fetchedAt: string | null, handlers: UiHandlers): HTMLElement {
   const r = h('div', { class: 'source-row' });
-  if (reading) {
+  if (fetchedAt) {
     const next = state.nextRefreshAt && state.data.kind !== 'failed' ? minutesUntil(state.nextRefreshAt, state.now) : null;
-    r.append(h('span', { class: 'source-text num', text: sourceLine(formatKstTime(reading.fetchedAt), next) }));
+    r.append(h('span', { class: 'source-text num', text: sourceLine(formatKstTime(fetchedAt), next) }));
   }
   r.append(button(T.refresh, handlers.onRefresh, 'btn btn-secondary'));
   return r;
@@ -277,6 +285,23 @@ function renderNow(state: AppState, handlers: UiHandlers, rotation: number): HTM
 
   if (data.kind === 'failed') info.append(failureBlock(data));
 
+  if (data.kind === 'sun-absent') {
+    // 해 위치 자체가 없으므로 방향 안내를 만들지 않는다. 마지막 정상값은 과거 값으로만 보여준다
+    const caption = shown ? lastGoodLabel(formatKstTime(shown.reading.fetchedAt)) : null;
+    visual.append(buildNightSky({ label: T.sunAbsentTitle, idPrefix: 'sun-dial' }));
+    info.append(
+      h(
+        'div',
+        { class: 'guide' },
+        h('h1', { class: 'headline', text: T.sunAbsentTitle }),
+        h('p', { class: 'sub', text: T.sunAbsentBody }),
+      ),
+    );
+    if (shown) info.append(valueCards(shown.reading, true, caption));
+    info.append(sourceRow(state, data.checkedAt, handlers));
+    return view;
+  }
+
   if (!shown) {
     visual.append(buildDial({ mode: 'north-up', sunAzimuth: null, label: '나침반', idPrefix: 'sun-dial' }));
     info.append(sourceRow(state, null, handlers));
@@ -294,20 +319,27 @@ function renderNow(state: AppState, handlers: UiHandlers, rotation: number): HTM
     requestFailed: data.kind === 'failed',
     isLastGood: !current,
   });
+  // 방향 안내는 현재 값이고 해가 지평선 위일 때만 한다. 실패 중 마지막 정상값으로는 안내하지 않는다
+  const turnGuide = visibility.treatAsLive && visibility.allowTurnGuidance && heading.kind === 'available';
+  const bearingGuide = visibility.treatAsLive && visibility.allowBearingGuidance;
 
-  visual.append(
-    buildDial({
-      mode: heading.kind === 'available' ? 'heading-up' : 'north-up',
-      heading: heading.kind === 'available' ? heading.heading : undefined,
-      rotation,
-      sunAzimuth: pos.azimuth,
-      belowHorizon: visibility.belowHorizon,
-      label: visibility.belowHorizon
-        ? `${lastGoodCaption ? `${lastGoodCaption}: ` : ''}${visibility.message}`
-        : dialLabel(heading, pos.azimuth),
-      idPrefix: 'sun-dial',
-    }),
-  );
+  if (visibility.belowHorizon) {
+    // 밤에는 나침반 대신 달을 보여준다 (방향을 가리키지 않는 그림)
+    visual.append(
+      buildNightSky({ label: `${lastGoodCaption ? `${lastGoodCaption}: ` : ''}${visibility.message}`, idPrefix: 'sun-dial' }),
+    );
+  } else {
+    visual.append(
+      buildDial({
+        mode: turnGuide ? 'heading-up' : 'north-up',
+        heading: turnGuide ? heading.heading : undefined,
+        rotation: turnGuide || heading.kind !== 'available' ? rotation : undefined,
+        sunAzimuth: pos.azimuth,
+        label: visibility.treatAsLive ? dialLabel(heading, pos.azimuth) : `${lastGoodCaption}: ${pastSunSub(pos)}`,
+        idPrefix: 'sun-dial',
+      }),
+    );
+  }
   if (!current) visual.classList.add('is-dim');
 
   const guide = h('div', { class: 'guide' });
@@ -315,23 +347,28 @@ function renderNow(state: AppState, handlers: UiHandlers, rotation: number): HTM
   if (visibility.belowHorizon) {
     guide.append(h('h1', { class: 'headline', text: isCurrentReading ? '지금은 해를 직접 볼 수 없어요' : '이 값에서 해를 직접 볼 수 없어요' }));
     guide.append(h('p', { class: 'sub', text: sunSub(pos) }));
-  } else if (heading.kind === 'available') {
+  } else if (turnGuide) {
     guide.append(h('h1', { class: 'headline', text: turnHeadline(computeTurn(pos.azimuth, heading.heading)) }));
-  } else {
+    guide.append(h('p', { class: 'sub', text: sunSub(pos) }));
+  } else if (bearingGuide) {
     guide.append(h('h1', { class: 'headline', text: facingHeadline(pos.azimuth) }));
+    guide.append(h('p', { class: 'sub', text: sunSub(pos) }));
+  } else {
+    guide.append(h('h1', { class: 'headline', text: T.lastGoodNoGuide }));
+    guide.append(h('p', { class: 'sub', text: pastSunSub(pos) }));
   }
-  if (!visibility.belowHorizon) guide.append(h('p', { class: 'sub', text: sunSub(pos) }));
-  if (!visibility.belowHorizon && heading.kind === 'needs-permission') {
+  if (bearingGuide && heading.kind === 'needs-permission') {
     guide.append(h('p', { class: 'note', text: T.headingNeedsPermission }));
     guide.append(button(T.allowHeading, handlers.onRequestHeading, 'btn btn-primary'));
-  } else if (!visibility.belowHorizon && heading.kind === 'unavailable') {
+  } else if (bearingGuide && heading.kind === 'unavailable') {
     guide.append(h('p', { class: 'note', text: heading.reason === 'denied' ? T.headingDenied : T.headingUnsupported }));
   }
   info.append(guide);
 
   const dim = data.kind === 'stale' || !current;
-  info.append(valueCards(reading, dim, lastGoodCaption));
-  info.append(sourceRow(state, reading, handlers));
+  // 마지막 정상값 캡션은 안내 영역에 이미 있으므로 값 카드에는 다시 붙이지 않는다
+  info.append(valueCards(reading, dim, null));
+  info.append(sourceRow(state, reading.fetchedAt, handlers));
   if (data.kind === 'stale') view.classList.add('is-stale');
   return view;
 }
@@ -364,7 +401,7 @@ function comparisonResult(from: DailyRecord, to: DailyRecord): HTMLElement {
       { class: 'compare-item' },
       h('div', { class: 'value-label', text: T.altitudeChange }),
       h('div', { class: 'value-num num', text: formatSignedDegrees(diff.altitude) }),
-      h('div', { class: 'value-sub num', text: `${formatDegrees(a.altitude)} → ${formatDegrees(b.altitude)}` }),
+      h('div', { class: 'value-sub num', text: `${formatAltitude(a.altitude)} → ${formatAltitude(b.altitude)}` }),
     ),
   );
 }
@@ -438,10 +475,7 @@ function renderRecords(root: HTMLElement, state: AppState, handlers: UiHandlers)
           h('th', { text: formatKstDateLabel(r.kstDate), attrs: { scope: 'row' } }),
           h('td', { class: 'num', text: `${formatKstTime(r.reading.fetchedAt)} KST 조회` }),
           h('td', { class: 'num', text: formatDegrees(r.reading.position.azimuth) }),
-          h('td', {
-            class: 'num',
-            text: `${formatDegrees(r.reading.position.altitude)}${r.reading.position.altitude <= 0 ? ' · 지평선 이하' : ''}`,
-          }),
+          h('td', { class: 'num', text: altitudeCell(r.reading.position.altitude) }),
           h('td', { text: r.reading.source }),
         ),
       );
@@ -466,6 +500,7 @@ function renderStatusCard(state: AppState): HTMLElement {
   let headline: string;
   if (d.kind === 'fresh' || d.kind === 'cached' || d.kind === 'stale') headline = statusHeadline(d.kind);
   else if (d.kind === 'failed') headline = failureMessage(d.failure);
+  else if (d.kind === 'sun-absent') headline = T.sunAbsentStatus;
   else if (d.kind === 'no-location') headline = T.noLocationTitle;
   else headline = state.location === 'locating' ? T.locating : T.loading;
 
@@ -473,13 +508,12 @@ function renderStatusCard(state: AppState): HTMLElement {
   const dl = h('dl', { class: 'kv-list' });
   dl.append(row(T.sourceLabel, T.sourceFull));
   const shown = readingOf(d);
-  if (shown) {
-    const at = shown.reading.fetchedAt;
-    dl.append(row(T.fetchedAt, `${formatKstTime(at)} KST (${formatElapsed(at, state.now)})`));
-  }
+  // 해 없음 상태의 조회 시각은 마지막 정상값이 아니라 이번 확인 시각이다
+  const at = d.kind === 'sun-absent' ? d.checkedAt : shown?.reading.fetchedAt;
+  if (at) dl.append(row(T.fetchedAt, `${formatKstTime(at)} KST (${formatElapsed(at, state.now)})`));
   if (d.kind === 'failed') {
     if (d.nextAttemptAt) dl.append(row(T.nextAttempt, `${formatKstTime(d.nextAttemptAt)} KST`));
-  } else if (state.nextRefreshAt && shown) {
+  } else if (state.nextRefreshAt && at) {
     dl.append(row(T.nextRefresh, `${formatKstTime(state.nextRefreshAt)} KST (${minutesLater(minutesUntil(state.nextRefreshAt, state.now))})`));
   }
   if (d.kind === 'fresh' || d.kind === 'cached') {
@@ -501,7 +535,7 @@ function renderLastGoodCard(state: AppState): HTMLElement {
   const dl = h('dl', { class: 'kv-list' });
   dl.append(
     row(T.azimuth, `${formatDegrees(r.position.azimuth)} (${compassPoint(r.position.azimuth)}쪽)`),
-    row(T.altitude, `${formatDegrees(r.position.altitude)}${r.position.altitude <= 0 ? ' · 지평선 이하' : ''}`),
+    row(T.altitude, altitudeCell(r.position.altitude)),
     row(T.fetchedAt, `${formatKstTime(r.fetchedAt)} KST`),
     row(T.sourceLabel, r.source),
   );
@@ -531,6 +565,7 @@ function renderDeviceCard(state: AppState): HTMLElement {
 function logTone(outcome: RequestLogEntry['outcome']): Tone {
   if (outcome === 'success') return 'fresh';
   if (outcome === 'failure') return 'error';
+  if (outcome === 'sun-absent') return 'night';
   return 'cached';
 }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatAltitude,
   formatDegrees,
   formatElapsed,
   formatKstDateLabel,
@@ -7,7 +8,7 @@ import {
   formatSignedDegrees,
   minutesUntil,
 } from '../../src/ui/format';
-import { facingHeadline, failureMessage, sunSub, turnHeadline } from '../../src/ui/text';
+import { altitudeCell, facingHeadline, failureMessage, sunSub, turnHeadline } from '../../src/ui/text';
 
 describe('format', () => {
   it('경과 시간', () => {
@@ -60,5 +61,26 @@ describe('text', () => {
   it('해 위치 보조 문장', () => {
     expect(sunSub({ azimuth: 170.9, altitude: 50.5 })).toBe('해는 남쪽, 지평선 위 50.5°에 있어요');
     expect(sunSub({ azimuth: 300, altitude: -12.3 })).toBe('해가 지평선 아래에 있어요 (고도 -12.3°)');
+  });
+});
+
+describe('고도 표시 (지평선 판정과 숫자가 어긋나 보이지 않게)', () => {
+  it.each([
+    [50.463, '50.5°'],
+    [0.1, '0.1°'],
+    [0.04, '0.04°'],
+    [0, '0.0°'],
+    [-0.04, '-0.04°'],
+    [-0.1, '-0.1°'],
+    [-18, '-18.0°'],
+  ])('%s → %s', (n, expected) => {
+    expect(formatAltitude(n)).toBe(expected);
+  });
+
+  it('0.04°는 지평선 위, -0.04°는 지평선 이하로 숫자와 설명이 함께 구분된다', () => {
+    expect(altitudeCell(0.04)).toBe('0.04°');
+    expect(altitudeCell(-0.04)).toBe('-0.04° · 지평선 이하');
+    expect(sunSub({ azimuth: 270, altitude: 0.04 })).toContain('지평선 위 0.04°');
+    expect(sunSub({ azimuth: 270, altitude: -0.04 })).toContain('고도 -0.04°');
   });
 });
