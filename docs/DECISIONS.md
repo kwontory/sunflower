@@ -32,3 +32,56 @@
 
 이유:
 별도의 프로젝트를 새로 만드는 것보다 하나의 실제 프로젝트가 발전하는 과정을 검증할 수 있기 때문이다.
+
+---
+
+## D003 — 태양 위치 공개 API
+
+날짜: 2026.09.27
+
+결정:
+주 API는 USNO Astronomical Applications API의 celnav 엔드포인트를 사용한다.
+필요한 경우 NASA JPL Horizons API를 교차 검증용으로 사용한다.
+
+판단:
+나
+
+이유:
+USNO celnav는 태양의 방위각(`zn`)과 고도(`hc`)를 직접 제공하고,
+API key가 필요 없으며 CORS를 허용(`access-control-allow-origin: *`)해 브라우저에서 바로 호출할 수 있다.
+따라서 저장소에 비밀값을 둘 필요가 없다.
+
+JPL Horizons는 공신력이 높지만 CORS 헤더가 없고 응답이 텍스트 표 형식이라
+주 API보다는 교차 검증용으로 적합하다.
+
+조사 시 공개 테스트 좌표(서울시청, 37.5663, 126.9779)로
+2026-09-27 03:00 UTC 값을 비교한 결과 두 API가 일치했다.
+(방위각 약 170.87°, 고도 약 50.46°)
+
+참고:
+- USNO 공식 문서: https://aa.usno.navy.mil/data/api
+- JPL Horizons 공식 문서: https://ssd-api.jpl.nasa.gov/doc/horizons.html
+- USNO celnav 시각 입력은 UT1 기준이다.
+- 방위각·고도를 제공하지 않는 API(sunrise-sunset.org 등)는 제외했다.
+- API key가 필요한 ipgeolocation.io는 비밀값 관리 부담 때문에 제외했다.
+
+---
+
+## D004 — API 호출 최소화
+
+날짜: 2026.09.27
+
+결정:
+외부 API 호출 횟수를 최대한 줄이는 방향으로 구현한다.
+
+판단:
+나
+
+이유:
+USNO와 JPL Horizons 모두 공식 문서에 호출 한도가 명시되어 있지 않다.
+한도를 알 수 없으므로 과도한 호출로 차단되거나 서비스에 부담을 주지 않도록 한다.
+
+적용 방향:
+- 짧은 간격의 반복 호출이나 과도한 자동 갱신을 피한다.
+- 교차 검증용 Horizons 호출은 항상 하지 않고 필요할 때만 한다.
+- 구체적인 호출 간격, 캐시 방식, 재시도 정책은 구현 단계에서 정한다.

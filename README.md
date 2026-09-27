@@ -23,3 +23,10 @@
 
 기획 단계.
 아직 구현하지 않음.
+
+## 사용 API
+
+- 주 API: [USNO Astronomical Applications API — celnav](https://aa.usno.navy.mil/data/api) (태양 방위각·고도, API key 불필요)
+- 교차 검증용: [NASA JPL Horizons API](https://ssd-api.jpl.nasa.gov/doc/horizons.html) (필요할 때만 사용)
+
+결정 배경은 `docs/DECISIONS.md`의 D003, D004를 참고한다.
