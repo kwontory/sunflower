@@ -8,3 +8,18 @@ node_modules/
 
 coverage/
 dist/
+
+# 개인 셸 / 도구 설정
+.bash_profile
+.bashrc
+.profile
+.zprofile
+.zshrc
+.gitconfig
+.gitmodules
+.ripgreprc
+.mcp.json
+
+# 에디터 설정
+.idea
+.vscode
