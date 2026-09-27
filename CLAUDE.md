@@ -13,6 +13,7 @@ Sunflower는 현재 위치에서 해를 바라보려면 어느 방향을 봐야 
 1. `README.md`
 2. `docs/PROJECT.md`
 3. `docs/DECISIONS.md`
+4. `docs/IMPLEMENTATION.md` (구현 작업을 이어서 할 때)
 
 ## 중요한 원칙
 
@@ -62,8 +63,8 @@ Sunflower는 현재 위치에서 해를 바라보려면 어느 방향을 봐야 
 - 외부 API 호출 횟수는 최대한 줄인다 (D004)
 - 기술 스택 확정: Vite + TypeScript (UI 프레임워크 없음), Vitest, localStorage (D006)
 - 배포처와 Horizons 프록시 미확정 (교차 검증이 필요해지는 시점 또는 배포 시점에 결정)
-- 실제 기능 구현 시작 전
-- 테스트 작성 전
+- 기능 구현 진행 중 (진행 상황과 남은 작업: `docs/IMPLEMENTATION.md`)
+- Vitest 단위 테스트 작성 중 (`npm test`)
 
 따라서 현재 단계에서는 구현되지 않은 기능을 이미 존재하는 것처럼 가정하지 않는다.
 

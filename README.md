@@ -21,8 +21,22 @@
 
 ## 현재 상태
 
-기획 단계.
-아직 구현하지 않음.
+기능 구현 진행 중. 진행 상황과 남은 작업은 `docs/IMPLEMENTATION.md`를 참고한다.
+
+## 실행 방법
+
+Node.js 20 이상이 필요하다.
+
+```bash
+npm install
+npm run dev        # 개발 서버 (http://localhost:5173)
+npm test           # 테스트 (외부 API를 호출하지 않는다)
+npm run typecheck  # 타입 검사
+npm run build      # 배포용 빌드 (dist/)
+```
+
+위치와 방향 센서는 보안 연결(HTTPS 또는 localhost)에서만 동작한다.
+휴대폰에서 방향 안내를 확인하려면 HTTPS로 접속해야 한다.
 
 ## 사용 API
 

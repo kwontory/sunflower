@@ -1,0 +1,242 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { AppState, Coordinates, HeadingStatus, Result, SunReading } from '../../src/types';
+import type { LocationFailure } from '../../src/sensors/location';
+import type { HeadingSource } from '../../src/sensors/heading';
+import { createController } from '../../src/app/controller';
+import { createStore } from '../../src/storage/store';
+import { SEOUL_CITY_HALL, celnavBody, jsonResponse } from '../api/fixtures';
+
+const MINUTE = 60_000;
+const START = new Date('2026-09-27T03:00:00.000Z'); // 12:00 KST
+
+function memoryStorage() {
+  const map = new Map<string, string>();
+  return {
+    getItem: (k: string) => map.get(k) ?? null,
+    setItem: (k: string, v: string) => void map.set(k, v),
+    removeItem: (k: string) => void map.delete(k),
+  };
+}
+
+function reading(fetchedAt: Date, coords: Coordinates = SEOUL_CITY_HALL): SunReading {
+  return {
+    position: { azimuth: 170.7, altitude: 50.8 },
+    coords,
+    observedAt: fetchedAt.toISOString(),
+    fetchedAt: fetchedAt.toISOString(),
+    source: 'USNO',
+  };
+}
+
+function setup(options: {
+  fetch?: typeof fetch;
+  location?: Result<Coordinates, LocationFailure>;
+  lastGood?: SunReading;
+  visible?: boolean;
+} = {}) {
+  let now = START.getTime();
+  const timers: Array<{ at: number; handler: () => void; id: number; done: boolean }> = [];
+  let nextId = 1;
+  const storage = memoryStorage();
+  const store = createStore(storage);
+  if (options.lastGood) store.saveLastGood(options.lastGood);
+
+  const fetchMock = vi.fn(options.fetch ?? (async () => jsonResponse(celnavBody())));
+  const states: AppState[] = [];
+  let visible = options.visible ?? true;
+  let headingCallback: ((s: HeadingStatus) => void) | null = null;
+  const heading: HeadingSource = {
+    start: (cb) => {
+      headingCallback = cb;
+    },
+    requestPermission: async () => {},
+    stop: () => {},
+  };
+
+  const controller = createController({
+    fetch: fetchMock as unknown as typeof fetch,
+    now: () => new Date(now),
+    sleep: async (ms) => {
+      now += ms;
+    },
+    random: () => 0,
+    setTimer: (handler, ms) => {
+      const t = { at: now + ms, handler, id: nextId++, done: false };
+      timers.push(t);
+      return t.id;
+    },
+    clearTimer: (id) => {
+      const t = timers.find((x) => x.id === id);
+      if (t) t.done = true;
+    },
+    isVisible: () => visible,
+    store,
+    requestLocation: async () => options.location ?? { ok: true, value: SEOUL_CITY_HALL },
+    heading,
+    onState: (s) => states.push(s),
+  });
+
+  /** 시계를 ms만큼 진행하며 그 사이 예약된 타이머를 순서대로 실행한다 */
+  const advance = async (ms: number) => {
+    const end = now + ms;
+    for (;;) {
+      const due = timers.filter((t) => !t.done && t.at <= end).sort((a, b) => a.at - b.at)[0];
+      if (!due) break;
+      now = Math.max(now, due.at);
+      due.done = true;
+      due.handler();
+      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    now = end;
+  };
+
+  return {
+    controller,
+    fetchMock,
+    store,
+    states,
+    advance,
+    setVisible: (v: boolean) => {
+      visible = v;
+    },
+    emitHeading: (s: HeadingStatus) => headingCallback?.(s),
+    last: () => states[states.length - 1],
+  };
+}
+
+describe('controller', () => {
+  it('처음 시작하면 위치를 얻고 USNO에서 받아 실시간 상태로 보여준다', async () => {
+    const t = setup();
+    await t.controller.start();
+
+    expect(t.fetchMock).toHaveBeenCalledTimes(1);
+    const url = String(t.fetchMock.mock.calls[0][0]);
+    expect(url).toContain('coords=37.57,126.98');
+
+    const state = t.last();
+    expect(state.data.kind).toBe('fresh');
+    if (state.data.kind === 'fresh') expect(state.data.reading.position.azimuth).toBeCloseTo(170.868399);
+    expect(state.nextRefreshAt).toBe(new Date(START.getTime() + 5 * MINUTE).toISOString());
+    expect(state.requestLog[0]).toMatchObject({ trigger: 'initial', outcome: 'success', attempts: 1 });
+    expect(t.store.loadLastGood()).not.toBeNull();
+    expect(t.store.loadDailyRecords().map((r) => r.kstDate)).toEqual(['2026-09-27']);
+  });
+
+  it('위치를 얻지 못하면 호출하지 않고 no-location 상태가 된다', async () => {
+    const t = setup({ location: { ok: false, error: 'denied' } });
+    await t.controller.start();
+    expect(t.fetchMock).not.toHaveBeenCalled();
+    expect(t.last().data).toEqual({ kind: 'no-location', reason: 'denied' });
+  });
+
+  it('실패하면 재시도 후 실패 상태가 되고, 마지막 정상값을 현재값으로 쓰지 않는다', async () => {
+    const lastGood = reading(new Date(START.getTime() - 60 * MINUTE));
+    const t = setup({ lastGood, fetch: async () => new Response('down', { status: 503 }) });
+    await t.controller.start();
+
+    expect(t.fetchMock).toHaveBeenCalledTimes(3);
+    const state = t.last();
+    expect(state.data.kind).toBe('failed');
+    if (state.data.kind === 'failed') {
+      expect(state.data.failure).toMatchObject({ kind: 'http', status: 503 });
+      expect(state.data.lastGood?.fetchedAt).toBe(lastGood.fetchedAt);
+    }
+    expect(state.requestLog[0]).toMatchObject({ outcome: 'failure', attempts: 3 });
+    // 연속 실패 1회 → 10분 뒤 자동 시도
+    const failedAt = new Date(state.now).getTime();
+    expect(new Date(state.nextRefreshAt!).getTime() - failedAt).toBe(10 * MINUTE);
+    // 실패해도 저장된 정상값은 그대로다
+    expect(t.store.loadLastGood()?.fetchedAt).toBe(lastGood.fetchedAt);
+  });
+
+  it('검증에 실패한 응답은 재시도하지 않고 실패로 처리한다', async () => {
+    const t = setup({ fetch: async () => jsonResponse(celnavBody({ zn: 999, hc: 50 })) });
+    await t.controller.start();
+    expect(t.fetchMock).toHaveBeenCalledTimes(1);
+    const data = t.last().data;
+    expect(data.kind === 'failed' && data.failure.kind).toBe('invalid-data');
+  });
+
+  it('같은 위치에서 5분 안에 받은 값이 있으면 호출하지 않고 최근 값으로 보여준다', async () => {
+    const t = setup({ lastGood: reading(new Date(START.getTime() - 2 * MINUTE)) });
+    await t.controller.start();
+    expect(t.fetchMock).not.toHaveBeenCalled();
+    expect(t.last().data.kind).toBe('cached');
+    expect(t.last().requestLog[0]).toMatchObject({ outcome: 'cache-hit' });
+  });
+
+  it('다른 위치의 저장값은 캐시로 쓰지 않는다', async () => {
+    const elsewhere = reading(new Date(START.getTime() - 2 * MINUTE), { latitude: -33.86, longitude: 151.21 });
+    const t = setup({ lastGood: elsewhere });
+    await t.controller.start();
+    expect(t.fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('60초 안에 다시 새로고침하면 호출하지 않는다', async () => {
+    const t = setup();
+    await t.controller.start();
+    await t.advance(30_000);
+    await t.controller.refresh();
+    expect(t.fetchMock).toHaveBeenCalledTimes(1);
+    expect(t.last().data.kind).toBe('cached');
+    expect(t.last().requestLog[0]).toMatchObject({ trigger: 'manual', outcome: 'cache-hit' });
+
+    await t.advance(31_000);
+    await t.controller.refresh();
+    expect(t.fetchMock).toHaveBeenCalledTimes(2);
+    expect(t.last().data.kind).toBe('fresh');
+  });
+
+  it('5분마다 자동으로 갱신한다', async () => {
+    const t = setup();
+    await t.controller.start();
+    await t.advance(5 * MINUTE);
+    expect(t.fetchMock).toHaveBeenCalledTimes(2);
+    expect(t.last().requestLog[0]).toMatchObject({ trigger: 'auto', outcome: 'success' });
+  });
+
+  it('탭이 가려져 있으면 자동 갱신을 하지 않고, 돌아왔을 때 5분이 지났으면 호출한다', async () => {
+    const t = setup();
+    await t.controller.start();
+    t.setVisible(false);
+    t.controller.handleVisibilityChange();
+    await t.advance(20 * MINUTE);
+    expect(t.fetchMock).toHaveBeenCalledTimes(1);
+
+    t.setVisible(true);
+    t.controller.handleVisibilityChange();
+    await t.advance(0);
+    expect(t.fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('cached 상태로 15분이 지나면 stale이 된다', async () => {
+    const t = setup({ lastGood: reading(new Date(START.getTime() - 4 * MINUTE)) });
+    t.setVisible(true);
+    await t.controller.start();
+    expect(t.last().data.kind).toBe('cached');
+    // 자동 갱신이 오기 전 탭을 가렸다가 16분 뒤 시계만 확인
+    t.setVisible(false);
+    t.controller.handleVisibilityChange();
+    await t.advance(16 * MINUTE);
+    t.setVisible(true);
+    // 가시성 복귀 직후 첫 상태 발행에서 stale로 표시되어야 한다
+    const before = t.states.length;
+    t.controller.handleVisibilityChange();
+    expect(t.states.slice(before).some((s) => s.data.kind === 'stale')).toBe(true);
+  });
+
+  it('방향 센서 상태를 그대로 반영한다', async () => {
+    const t = setup();
+    await t.controller.start();
+    t.emitHeading({ kind: 'available', heading: 138.9 });
+    expect(t.last().heading).toEqual({ kind: 'available', heading: 138.9 });
+  });
+
+  it('탭 전환', async () => {
+    const t = setup();
+    await t.controller.start();
+    t.controller.setTab('records');
+    expect(t.last().tab).toBe('records');
+  });
+});
