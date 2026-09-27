@@ -438,7 +438,10 @@ function renderRecords(root: HTMLElement, state: AppState, handlers: UiHandlers)
           h('th', { text: formatKstDateLabel(r.kstDate), attrs: { scope: 'row' } }),
           h('td', { class: 'num', text: `${formatKstTime(r.reading.fetchedAt)} KST 조회` }),
           h('td', { class: 'num', text: formatDegrees(r.reading.position.azimuth) }),
-          h('td', { class: 'num', text: formatDegrees(r.reading.position.altitude) }),
+          h('td', {
+            class: 'num',
+            text: `${formatDegrees(r.reading.position.altitude)}${r.reading.position.altitude <= 0 ? ' · 지평선 이하' : ''}`,
+          }),
           h('td', { text: r.reading.source }),
         ),
       );

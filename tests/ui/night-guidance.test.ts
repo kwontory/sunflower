@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest';
 import { render } from '../../src/ui/render';
-import { handlers, reading, state } from './fixtures';
+import { handlers, reading, record, state } from './fixtures';
 
 let root: HTMLElement;
 beforeEach(() => {
@@ -63,5 +63,16 @@ describe('지평선 이하 안내', () => {
 
     expect(root.querySelector('.card-status')?.textContent).toContain('불러오지 못했어요');
     expect(root.querySelector('.card-lastgood')?.textContent).toContain('-18.0° · 지평선 이하');
+  });
+
+  it('기록 탭 표에서 고도 0° 이하 기록에만 지평선 이하를 표시한다', () => {
+    const records = [record('2026-09-25', 270, 0.1), record('2026-09-26', 270, 0), record('2026-09-27', 270, -18)];
+    render(root, state({ tab: 'records', records }), handlers());
+
+    const altitudeCell = (date: string) =>
+      [...root.querySelectorAll('tbody tr')].find((tr) => tr.textContent?.includes(date))?.querySelectorAll('td')[2]?.textContent;
+    expect(altitudeCell('2026-09-25')).toBe('0.1°');
+    expect(altitudeCell('2026-09-26')).toBe('0.0° · 지평선 이하');
+    expect(altitudeCell('2026-09-27')).toBe('-18.0° · 지평선 이하');
   });
 });
