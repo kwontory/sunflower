@@ -44,18 +44,6 @@ const controller = createController({
   store: createStore(safeLocalStorage()),
   requestLocation: () => requestLocation(navigator.geolocation),
   heading: createHeadingSource(browserHeadingEnvironment(window)),
-  // 거부된 권한은 같은 페이지에서 다시 묻지 않는 브라우저가 있어, 한 번만 다시 읽어 권한 창을 띄운다
-  reloadForLocationPrompt: () => {
-    const KEY = 'sunflower:locationReloaded';
-    try {
-      if (sessionStorage.getItem(KEY)) return false;
-      sessionStorage.setItem(KEY, '1');
-    } catch {
-      return false;
-    }
-    window.location.reload();
-    return true;
-  },
   onState: (state) =>
     render(root, state, {
       onTabChange: (tab) => controller.setTab(tab),

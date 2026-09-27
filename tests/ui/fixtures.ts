@@ -23,6 +23,7 @@ export function state(overrides: Partial<AppState> = {}): AppState {
     data: { kind: 'fresh', reading: reading() },
     heading: { kind: 'available', heading: 138.9 },
     location: 'current',
+    locationBlocked: false,
     nextRefreshAt: '2026-09-27T03:05:00.000Z',
     records: [],
     requestLog: [],

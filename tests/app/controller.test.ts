@@ -32,7 +32,6 @@ function setup(options: {
   fetch?: typeof fetch;
   location?: Result<Coordinates, LocationFailure>;
   locate?: () => Promise<Result<Coordinates, LocationFailure>>;
-  reloadForLocationPrompt?: () => boolean;
   lastGood?: SunReading;
   visible?: boolean;
 } = {}) {
@@ -76,7 +75,6 @@ function setup(options: {
     requestLocation: options.locate ?? (async () => options.location ?? { ok: true, value: SEOUL_CITY_HALL }),
     heading,
     onState: (s) => states.push(s),
-    reloadForLocationPrompt: options.reloadForLocationPrompt,
   });
 
   /** 시계를 ms만큼 진행하며 그 사이 예약된 타이머를 순서대로 실행한다 */
@@ -297,7 +295,8 @@ describe('controller', () => {
     const t = setup({ locate });
     const started = t.controller.start();
     await Promise.resolve();
-    t.controller.handleLocationPermission('granted');
+    t.controller.handleLocationPermission('prompt'); // 권한 창이 떠 있는 상태
+    t.controller.handleLocationPermission('granted'); // 사용자가 허용
     expect(locate).toHaveBeenCalledTimes(2);
 
     pending[1]({ ok: true, value: SEOUL_CITY_HALL }); // 허용 뒤 요청이 먼저 성공
@@ -320,20 +319,45 @@ describe('controller', () => {
     await started;
   });
 
-  it('위치 허용하기를 눌렀는데 권한 창 없이 바로 거부되면 페이지를 다시 읽어 권한 창을 띄운다', async () => {
-    const reload = vi.fn(() => true);
-    const t = setup({ location: { ok: false, error: 'denied' }, reloadForLocationPrompt: reload });
+  it('위치 허용하기를 눌렀는데 권한 창 없이 바로 거부되면 차단 상태로 보고 설정 안내를 띄운다', async () => {
+    const t = setup({ location: { ok: false, error: 'denied' } });
     await t.controller.start();
-    expect(reload).not.toHaveBeenCalled(); // 처음 시작할 때는 다시 읽지 않는다
+    expect(t.last().locationBlocked).toBe(false); // 처음 거부는 사용자가 권한 창에서 고른 것일 수 있다
     await t.controller.retryLocation();
-    expect(reload).toHaveBeenCalledTimes(1);
+    expect(t.last().locationBlocked).toBe(true);
+    expect(t.last().data).toEqual({ kind: 'no-location', reason: 'denied' });
   });
 
-  it('다시 읽기를 할 수 없으면 위치 없음 상태를 유지한다', async () => {
-    const t = setup({ location: { ok: false, error: 'denied' }, reloadForLocationPrompt: () => false });
+  it('브라우저가 권한을 차단 중이라고 알려 주면 바로 설정 안내 상태가 된다', async () => {
+    const t = setup({ location: { ok: false, error: 'denied' } });
     await t.controller.start();
-    await t.controller.retryLocation();
-    expect(t.last().data).toEqual({ kind: 'no-location', reason: 'denied' });
+    t.controller.handleLocationPermission('denied');
+    expect(t.last().locationBlocked).toBe(true);
+  });
+
+  it('사이트 설정에서 허용으로 바꾸면 새로고침 없이 다시 불러오고 차단 표시를 없앤다', async () => {
+    const results: Array<Result<Coordinates, LocationFailure>> = [
+      { ok: false, error: 'denied' },
+      { ok: true, value: SEOUL_CITY_HALL },
+    ];
+    const t = setup({ locate: async () => results.shift()! });
+    await t.controller.start();
+    t.controller.handleLocationPermission('denied');
+    t.controller.handleLocationPermission('granted');
+    await vi.waitFor(() => expect(t.last().data.kind).toBe('fresh'));
+    expect(t.last().locationBlocked).toBe(false);
+  });
+
+  it('처음부터 허용된 상태라는 알림으로는 위치를 두 번 요청하지 않는다', async () => {
+    let release: (v: Result<Coordinates, LocationFailure>) => void = () => {};
+    const locate = vi.fn(() => new Promise<Result<Coordinates, LocationFailure>>((r) => (release = r)));
+    const t = setup({ locate });
+    const started = t.controller.start();
+    await Promise.resolve();
+    t.controller.handleLocationPermission('granted');
+    expect(locate).toHaveBeenCalledTimes(1);
+    release({ ok: true, value: SEOUL_CITY_HALL });
+    await started;
   });
 
   it('네트워크가 돌아오면 실패 상태에서 바로 다시 조회한다', async () => {

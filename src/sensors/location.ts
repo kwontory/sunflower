@@ -46,7 +46,8 @@ interface PermissionsLike {
 }
 
 /**
- * 위치 권한 상태가 바뀔 때마다 알린다. 권한 창에서 "허용"을 누른 순간을 잡아 다시 시도하는 데 쓴다.
+ * 위치 권한 상태를 처음 한 번, 그리고 바뀔 때마다 알린다.
+ * 권한 창에서 "허용"을 누르거나 사이트 설정에서 차단을 푼 순간을 잡아 다시 시도하는 데 쓴다.
  * Permissions API가 없거나 geolocation 조회를 지원하지 않는 브라우저에서는 아무 일도 하지 않는다.
  */
 export function watchLocationPermission(
@@ -63,6 +64,7 @@ export function watchLocationPermission(
       };
       if (typeof status.addEventListener === 'function') status.addEventListener('change', notify);
       else status.onchange = notify;
+      notify();
     })
     .catch(() => {
       // 지원하지 않으면 화면 복귀 시 재시도(컨트롤러)로 대신한다

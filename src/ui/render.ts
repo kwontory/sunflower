@@ -239,6 +239,21 @@ function renderNow(state: AppState, handlers: UiHandlers, rotation: number): HTM
     return view;
   }
 
+  if (data.kind === 'no-location' && state.locationBlocked) {
+    // 차단된 권한은 앱이 다시 물어볼 수 없으므로, 버튼 대신 사이트 설정에서 허용하는 방법을 안내한다
+    visual.append(buildDial({ mode: 'north-up', sunAzimuth: null, label: '나침반', idPrefix: 'sun-dial' }));
+    const steps = h('ol', { class: 'guide-steps' });
+    for (const step of T.blockedSteps) steps.append(h('li', { text: step }));
+    info.append(
+      h('div', { class: 'pills' }, pill('neutral', T.headingOff)),
+      h('h1', { class: 'headline', text: T.blockedTitle }),
+      h('p', { class: 'sub', text: T.blockedBody }),
+      steps,
+      button(T.checkAgain, handlers.onRequestLocation, 'btn btn-secondary'),
+    );
+    return view;
+  }
+
   if (data.kind === 'no-location') {
     visual.append(buildDial({ mode: 'north-up', sunAzimuth: null, label: '나침반', idPrefix: 'sun-dial' }));
     info.append(

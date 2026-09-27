@@ -215,3 +215,21 @@ describe('위치 확인 단계 표시 (T22 C)', () => {
     expect(root.textContent).not.toContain('이전 위치 기준');
   });
 });
+
+describe('위치 권한 차단 안내', () => {
+  it('차단 상태면 반응 없는 버튼 대신 사이트 설정 방법을 안내한다', () => {
+    const hs = handlers();
+    render(root, state({ data: { kind: 'no-location', reason: 'denied' }, location: 'none', locationBlocked: true }), hs);
+    expect(root.textContent).toContain('위치 권한이 꺼져 있어요');
+    expect(root.textContent).toContain('웹사이트 설정');
+    expect(root.textContent).not.toContain('위치 허용하기');
+    const again = [...root.querySelectorAll('button')].find((b) => b.textContent === '다시 확인') as HTMLButtonElement;
+    again.click();
+    expect(hs.onRequestLocation).toHaveBeenCalled();
+  });
+
+  it('차단이 아니면 기존처럼 위치 허용하기 버튼을 보여준다', () => {
+    render(root, state({ data: { kind: 'no-location', reason: 'denied' }, location: 'none' }), handlers());
+    expect(root.textContent).toContain('위치 허용하기');
+  });
+});

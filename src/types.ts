@@ -97,6 +97,8 @@ export interface AppState {
   data: DataStatus;
   heading: HeadingStatus;
   location: LocationStatus;
+  /** 브라우저가 이 사이트의 위치 권한을 막고 있어 권한 창을 다시 띄울 수 없는 상태 */
+  locationBlocked: boolean;
   /** 다음 자동 갱신 예정 시각 (ISO) */
   nextRefreshAt: string | null;
   records: DailyRecord[];

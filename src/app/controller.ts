@@ -39,11 +39,6 @@ export interface ControllerDeps {
   requestLocation: () => Promise<Result<Coordinates, LocationFailure>>;
   heading: HeadingSource;
   onState: (state: AppState) => void;
-  /**
-   * 위치 권한이 이미 거부되어 권한 창이 다시 뜨지 않을 때 호출한다.
-   * 브라우저에 따라 페이지를 다시 읽으면 권한 창이 다시 뜬다. 다시 읽기를 시작했으면 true.
-   */
-  reloadForLocationPrompt?: () => boolean;
 }
 
 export interface Controller {
@@ -73,6 +68,8 @@ export function createController(deps: ControllerDeps): Controller {
   let confirmed = false;
   /** 이번 실행에서 마지막으로 조회를 시도한 좌표 (같은 좌표로 중복 호출하지 않기 위해) */
   let attemptedCoords: Coordinates | null = null;
+  /** 마지막으로 알게 된 위치 권한 상태 */
+  let lastPermission: 'granted' | 'denied' | 'prompt' | null = null;
   let lastGood: SunReading | null = deps.store.loadLastGood();
   let lastRequestAt: Date | null = null;
   let lastSuccessAt: Date | null = lastGood ? new Date(lastGood.fetchedAt) : null;
@@ -87,6 +84,7 @@ export function createController(deps: ControllerDeps): Controller {
     data: { kind: 'loading' },
     heading: { kind: 'needs-permission' },
     location: 'locating',
+    locationBlocked: false,
     nextRefreshAt: null,
     records: deps.store.loadDailyRecords(),
     requestLog: [],
@@ -224,7 +222,7 @@ export function createController(deps: ControllerDeps): Controller {
     return locating;
   };
 
-  /** 권한 창 없이 바로 거부가 돌아온 것으로 보는 시간 */
+  /** 권한 창 없이 바로 거부가 돌아온 것으로 보는 시간 (브라우저가 차단한 상태) */
   const INSTANT_DENIAL_MS = 1500;
 
   /** 현재 좌표로 보여줄 값을 준비한다: 5분 안에 받은 같은 위치의 값이 있으면 호출하지 않는다 (D005 요청 캐시) */
@@ -251,14 +249,11 @@ export function createController(deps: ControllerDeps): Controller {
     if (!located.ok) {
       // 다른 요청이 먼저 현재 위치를 얻었으면 이 실패는 무시한다
       if (confirmed) return;
-      if (
-        trigger === 'manual' &&
+      // 버튼을 눌렀는데 권한 창 없이 바로 거부가 오면, 브라우저가 이 사이트를 차단한 상태다
+      const blocked =
         located.error === 'denied' &&
-        deps.now().getTime() - startedAt < INSTANT_DENIAL_MS &&
-        deps.reloadForLocationPrompt?.()
-      ) {
-        return;
-      }
+        (state.locationBlocked || (trigger === 'manual' && deps.now().getTime() - startedAt < INSTANT_DENIAL_MS));
+      if (blocked !== state.locationBlocked) publish({ locationBlocked: blocked });
       // 위치를 잠시 못 잡은 경우에만 이전 위치 기준 값을 계속 보여준다. 거부했다면 이전 좌표도 쓰지 않는다
       if (located.error === 'unavailable' && coords && state.location === 'provisional') {
         publish({ location: 'last-known' });
@@ -271,7 +266,7 @@ export function createController(deps: ControllerDeps): Controller {
     }
     confirmed = true;
     coords = located.value;
-    publish({ location: 'current' });
+    publish({ location: 'current', locationBlocked: false });
     // 이전 좌표와 같은 곳이면 이미 조회를 시도했으므로 다시 부르지 않는다 (D004)
     if (attemptedCoords && sameCoords(attemptedCoords, coords)) {
       if (inFlight) await inFlight;
@@ -347,8 +342,15 @@ export function createController(deps: ControllerDeps): Controller {
     },
 
     handleLocationPermission(permission) {
-      // 느린 요청이 진행 중이어도 허용 직후 새로 요청한다. 먼저 얻은 결과를 쓴다
-      if (permission === 'granted' && !confirmed) void locateOnce('initial');
+      // 사이트 설정에서 차단 중이면 권한 창을 띄울 수 없으므로 설정 안내를 보여준다
+      const blocked = permission === 'denied';
+      if (blocked !== state.locationBlocked) publish({ locationBlocked: blocked });
+      // 허용으로 바뀌었거나 위치가 없는 상태에서 허용을 알게 되면 새로 요청한다.
+      // 처음부터 허용된 상태를 알리는 경우에는 이미 시작한 요청이 있으므로 다시 요청하지 않는다
+      const changedToGranted = permission === 'granted' && lastPermission !== null && lastPermission !== 'granted';
+      lastPermission = permission;
+      if (confirmed || permission !== 'granted') return;
+      if (changedToGranted || state.data.kind === 'no-location') void locateOnce('initial');
     },
 
     handleOnline() {

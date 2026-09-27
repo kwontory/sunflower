@@ -61,3 +61,11 @@ describe('watchLocationPermission', () => {
     await Promise.resolve();
   });
 });
+
+describe('watchLocationPermission 처음 상태', () => {
+  it('처음 조회한 상태도 알린다 (이미 차단된 경우 바로 안내하기 위해)', async () => {
+    const onChange = vi.fn();
+    watchLocationPermission({ query: async () => ({ state: 'denied', onchange: null }) }, onChange);
+    await vi.waitFor(() => expect(onChange).toHaveBeenCalledWith('denied'));
+  });
+});

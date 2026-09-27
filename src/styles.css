@@ -802,3 +802,12 @@ select:focus-visible {
 .view-status > .card-log {
   grid-column: 1 / -1;
 }
+
+/* 위치 권한 차단 시 설정 안내 목록 */
+.guide-steps {
+  margin: 0 0 16px;
+  padding-left: 20px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
