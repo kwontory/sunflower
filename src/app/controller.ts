@@ -20,6 +20,8 @@ import { kstDateKey } from '../core/time';
 
 /** 화면의 경과 시간과 stale 전환을 갱신하는 주기 */
 export const CLOCK_TICK_MS = 30_000;
+/** 방향 값만 바뀔 때 화면을 다시 그리는 최소 간격 (초당 최대 4번) */
+export const HEADING_RENDER_INTERVAL_MS = 250;
 const REQUEST_LOG_LIMIT = 20;
 
 type Store = ReturnType<typeof createStore>;
@@ -79,6 +81,26 @@ export function createController(deps: ControllerDeps): Controller {
   const publish = (patch: Partial<AppState>) => {
     state = { ...state, ...patch, now: nowIso() };
     deps.onState(state);
+  };
+
+  // 방향 값은 초당 수십 번 올 수 있으므로 모아서 반영한다. 종류가 바뀌면 바로 반영한다
+  let pendingHeading: HeadingStatus | null = null;
+  let headingTimer: unknown = null;
+  const updateHeading = (heading: HeadingStatus) => {
+    if (heading.kind !== state.heading.kind) {
+      if (headingTimer !== null) deps.clearTimer(headingTimer);
+      headingTimer = null;
+      pendingHeading = null;
+      publish({ heading });
+      return;
+    }
+    pendingHeading = heading;
+    if (headingTimer !== null) return;
+    headingTimer = deps.setTimer(() => {
+      headingTimer = null;
+      if (pendingHeading) publish({ heading: pendingHeading });
+      pendingHeading = null;
+    }, HEADING_RENDER_INTERVAL_MS);
   };
 
   const log = (entry: Omit<RequestLogEntry, 'at'>) => {
@@ -199,7 +221,7 @@ export function createController(deps: ControllerDeps): Controller {
 
   return {
     async start() {
-      deps.heading.start((heading: HeadingStatus) => publish({ heading }));
+      deps.heading.start(updateHeading);
       publish({});
       startClock();
       await locateAndLoad('initial');

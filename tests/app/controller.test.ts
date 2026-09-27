@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AppState, Coordinates, HeadingStatus, Result, SunReading } from '../../src/types';
 import type { LocationFailure } from '../../src/sensors/location';
 import type { HeadingSource } from '../../src/sensors/heading';
-import { createController } from '../../src/app/controller';
+import { HEADING_RENDER_INTERVAL_MS, createController } from '../../src/app/controller';
 import { createStore } from '../../src/storage/store';
 import { SEOUL_CITY_HALL, celnavBody, jsonResponse } from '../api/fixtures';
 
@@ -226,11 +226,26 @@ describe('controller', () => {
     expect(t.states.slice(before).some((s) => s.data.kind === 'stale')).toBe(true);
   });
 
-  it('방향 센서 상태를 그대로 반영한다', async () => {
+  it('방향 감지 종류가 바뀌면 바로 반영한다', async () => {
     const t = setup();
     await t.controller.start();
     t.emitHeading({ kind: 'available', heading: 138.9 });
     expect(t.last().heading).toEqual({ kind: 'available', heading: 138.9 });
+    t.emitHeading({ kind: 'unavailable', reason: 'denied' });
+    expect(t.last().heading).toEqual({ kind: 'unavailable', reason: 'denied' });
+  });
+
+  it('방향 값만 연달아 바뀌면 250ms에 한 번만 화면을 갱신한다 (T12)', async () => {
+    const t = setup();
+    await t.controller.start();
+    t.emitHeading({ kind: 'available', heading: 100 });
+    const before = t.states.length;
+    for (let i = 1; i <= 10; i += 1) t.emitHeading({ kind: 'available', heading: 100 + i * 2 });
+    expect(t.states.length).toBe(before);
+
+    await t.advance(HEADING_RENDER_INTERVAL_MS);
+    expect(t.states.length).toBe(before + 1);
+    expect(t.last().heading).toEqual({ kind: 'available', heading: 120 });
   });
 
   it('탭 전환', async () => {

@@ -20,6 +20,8 @@ export interface DialOptions {
   /** 해가 지평선 아래일 때 흐리게 */
   belowHorizon?: boolean;
   label: string;
+  /** 그라데이션 id 접두어. 한 화면에 다이얼이 하나뿐이면 고정값을 줘서 다시 그려도 같은 결과가 나오게 한다 */
+  idPrefix?: string;
 }
 
 function el<K extends keyof SVGElementTagNameMap>(
@@ -75,7 +77,7 @@ function buildDefs(id: string): SVGDefsElement {
 }
 
 export function buildDial(opts: DialOptions): SVGSVGElement {
-  const id = `dial${++dialSeq}`;
+  const id = opts.idPrefix ?? `dial${++dialSeq}`;
   const headingUp = opts.mode === 'heading-up' && opts.heading !== undefined;
   const rotation = headingUp ? (opts.heading as number) : 0;
 

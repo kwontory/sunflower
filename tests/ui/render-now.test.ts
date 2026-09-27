@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest';
+import { buildDial } from '../../src/ui/dial';
 import { render } from '../../src/ui/render';
 import { buttonByText, handlers, reading, state } from './fixtures';
 
@@ -158,11 +159,14 @@ describe('공통', () => {
     expect(hd.onTabChange).toHaveBeenCalledWith('status');
   });
 
-  it('다이얼 인스턴스마다 그라디언트 id가 다르다', () => {
+  it('id 접두어를 주지 않은 다이얼은 인스턴스마다 그라디언트 id가 다르다', () => {
+    const a = buildDial({ mode: 'north-up', sunAzimuth: 170.9, label: 'a' });
+    const b = buildDial({ mode: 'north-up', sunAzimuth: 170.9, label: 'b' });
+    expect(a.querySelector('radialGradient')!.id).not.toBe(b.querySelector('radialGradient')!.id);
+  });
+
+  it('화면의 다이얼은 고정 id를 써서 같은 상태면 같은 결과를 그린다 (T12)', () => {
     render(root, state(), handlers());
-    const id1 = root.querySelector('radialGradient')!.id;
-    render(root, state(), handlers());
-    const id2 = root.querySelector('radialGradient')!.id;
-    expect(id1).not.toBe(id2);
+    expect(root.querySelector('radialGradient')!.id).toBe('sun-dial-glow');
   });
 });

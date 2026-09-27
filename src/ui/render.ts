@@ -230,13 +230,13 @@ function renderNow(state: AppState, handlers: UiHandlers): HTMLElement {
   view.append(visual, info);
 
   if (data.kind === 'loading') {
-    visual.append(buildDial({ mode: 'north-up', sunAzimuth: null, label: '나침반' }));
+    visual.append(buildDial({ mode: 'north-up', sunAzimuth: null, label: '나침반', idPrefix: 'sun-dial' }));
     info.append(h('h1', { class: 'headline', text: T.loading, attrs: { 'aria-live': 'polite' } }));
     return view;
   }
 
   if (data.kind === 'no-location') {
-    visual.append(buildDial({ mode: 'north-up', sunAzimuth: null, label: '나침반' }));
+    visual.append(buildDial({ mode: 'north-up', sunAzimuth: null, label: '나침반', idPrefix: 'sun-dial' }));
     info.append(
       h('div', { class: 'pills' }, pill('neutral', T.headingOff)),
       h('h1', { class: 'headline', text: T.noLocationTitle }),
@@ -256,7 +256,7 @@ function renderNow(state: AppState, handlers: UiHandlers): HTMLElement {
   if (data.kind === 'failed') info.append(failureBlock(data));
 
   if (!shown) {
-    visual.append(buildDial({ mode: 'north-up', sunAzimuth: null, label: '나침반' }));
+    visual.append(buildDial({ mode: 'north-up', sunAzimuth: null, label: '나침반', idPrefix: 'sun-dial' }));
     info.append(sourceRow(state, null, handlers));
     return view;
   }
@@ -273,6 +273,7 @@ function renderNow(state: AppState, handlers: UiHandlers): HTMLElement {
       sunAzimuth: pos.azimuth,
       belowHorizon: pos.altitude < 0,
       label: dialLabel(heading, pos.azimuth),
+      idPrefix: 'sun-dial',
     }),
   );
   if (!current) visual.classList.add('is-dim');
@@ -545,13 +546,54 @@ function renderStatus(state: AppState): HTMLElement {
 
 // ---------- 진입점 ----------
 
-export function render(root: HTMLElement, state: AppState, handlers: UiHandlers): void {
-  let view: HTMLElement;
-  if (state.tab === 'records') view = renderRecords(root, state, handlers);
-  else if (state.tab === 'status') view = renderStatus(state);
-  else view = renderNow(state, handlers);
+interface Mounted {
+  app: HTMLElement;
+  header: HTMLElement;
+  main: HTMLElement;
+  /** 이미 그려진 버튼들이 항상 최신 handlers를 부르도록 거치는 객체 */
+  handlers: UiHandlers;
+  latest: UiHandlers;
+}
 
+const mounted = new WeakMap<HTMLElement, Mounted>();
+
+function forwardingHandlers(get: () => UiHandlers): UiHandlers {
+  return {
+    onTabChange: (tab) => get().onTabChange(tab),
+    onRefresh: () => get().onRefresh(),
+    onRequestHeading: () => get().onRequestHeading(),
+    onRequestLocation: () => get().onRequestLocation(),
+    onExportRecords: () => get().onExportRecords(),
+  };
+}
+
+/** 새로 만든 영역이 기존과 표시상 같으면 기존 요소를 그대로 둔다 (포커스·열린 select 유지) */
+function patch(current: HTMLElement, next: HTMLElement): HTMLElement {
+  if (current.isEqualNode(next)) return current;
+  current.replaceWith(next);
+  return next;
+}
+
+export function render(root: HTMLElement, state: AppState, handlers: UiHandlers): void {
+  let m = mounted.get(root);
+  if (m && !root.contains(m.app)) m = undefined;
+  const fwd = m?.handlers ?? forwardingHandlers(() => mounted.get(root)!.latest);
+
+  let view: HTMLElement;
+  if (state.tab === 'records') view = renderRecords(root, state, fwd);
+  else if (state.tab === 'status') view = renderStatus(state);
+  else view = renderNow(state, fwd);
+
+  const header = renderHeader(state, fwd);
   const main = h('main', { class: 'content', attrs: { 'data-tab': state.tab } }, view);
-  const app = h('div', { class: 'app' }, renderHeader(state, handlers), main);
-  root.replaceChildren(app);
+
+  if (!m) {
+    const app = h('div', { class: 'app' }, header, main);
+    root.replaceChildren(app);
+    mounted.set(root, { app, header, main, handlers: fwd, latest: handlers });
+    return;
+  }
+  m.latest = handlers;
+  m.header = patch(m.header, header);
+  m.main = patch(m.main, main);
 }
