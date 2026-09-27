@@ -97,7 +97,7 @@ export function facingHeadline(azimuth: number): string {
 }
 
 export function sunSub(position: SunPosition): string {
-  if (position.altitude < 0) return `해가 지평선 아래에 있어요 (고도 ${formatDegrees(position.altitude)})`;
+  if (position.altitude <= 0) return `해가 지평선 아래에 있어요 (고도 ${formatDegrees(position.altitude)})`;
   return `해는 ${compassPoint(position.azimuth)}쪽, 지평선 위 ${formatDegrees(position.altitude)}에 있어요`;
 }
 

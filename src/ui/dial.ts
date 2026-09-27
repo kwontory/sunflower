@@ -127,7 +127,7 @@ export function buildDial(opts: DialOptions): SVGSVGElement {
   // 호가 생기거나 사라져도 다이얼 구조가 바뀌지 않도록 묶음은 항상 둔다.
   const arcLayer = el('g', { class: 'dial-arc-layer', 'data-morph': 'children' });
   svg.append(arcLayer);
-  if (headingUp && opts.sunAzimuth !== null) {
+  if (headingUp && opts.sunAzimuth !== null && !opts.belowHorizon) {
     const turn = computeTurn(opts.sunAzimuth, heading);
     if (turn.direction !== 'front') {
       const signed = turn.direction === 'right' ? turn.degrees : -turn.degrees;

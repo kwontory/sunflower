@@ -2,6 +2,7 @@
 import type { AppState, DailyRecord, DataStatus, HeadingStatus, RequestLogEntry, SunReading, Tab } from '../types';
 import { STALE_AFTER_MS } from '../config';
 import { compassPoint, computeTurn, normalizeDegrees } from '../core/direction';
+import { getSunVisibilityState } from '../core/sun-visibility';
 import { buildDial, unwrapRotation } from './dial';
 import {
   formatDegrees,
@@ -187,7 +188,7 @@ function valueCards(reading: SunReading, dim: boolean, caption: string | null): 
       { class: 'value-card' },
       h('div', { class: 'value-label', text: T.altitude }),
       h('div', { class: 'value-num num', text: formatDegrees(altitude) }),
-      h('div', { class: 'value-sub', text: altitude < 0 ? '지평선 아래' : '지평선 위' }),
+      h('div', { class: 'value-sub', text: altitude <= 0 ? '지평선 이하' : '지평선 위' }),
     ),
   );
   wrap.append(grid);
@@ -285,7 +286,14 @@ function renderNow(state: AppState, handlers: UiHandlers, rotation: number): HTM
   const { reading, current } = shown;
   const pos = reading.position;
   const heading = state.heading;
+  const isCurrentReading = current && data.kind !== 'stale';
   const lastGoodCaption = current ? null : lastGoodLabel(formatKstTime(reading.fetchedAt));
+  const visibility = getSunVisibilityState({
+    altitude: pos.altitude,
+    hasHeading: heading.kind === 'available',
+    requestFailed: data.kind === 'failed',
+    isLastGood: !current,
+  });
 
   visual.append(
     buildDial({
@@ -293,8 +301,10 @@ function renderNow(state: AppState, handlers: UiHandlers, rotation: number): HTM
       heading: heading.kind === 'available' ? heading.heading : undefined,
       rotation,
       sunAzimuth: pos.azimuth,
-      belowHorizon: pos.altitude < 0,
-      label: dialLabel(heading, pos.azimuth),
+      belowHorizon: visibility.belowHorizon,
+      label: visibility.belowHorizon
+        ? `${lastGoodCaption ? `${lastGoodCaption}: ` : ''}${visibility.message}`
+        : dialLabel(heading, pos.azimuth),
       idPrefix: 'sun-dial',
     }),
   );
@@ -302,16 +312,19 @@ function renderNow(state: AppState, handlers: UiHandlers, rotation: number): HTM
 
   const guide = h('div', { class: 'guide' });
   if (lastGoodCaption) guide.append(h('p', { class: 'guide-caption', text: lastGoodCaption }));
-  if (heading.kind === 'available') {
+  if (visibility.belowHorizon) {
+    guide.append(h('h1', { class: 'headline', text: isCurrentReading ? '지금은 해를 직접 볼 수 없어요' : '이 값에서 해를 직접 볼 수 없어요' }));
+    guide.append(h('p', { class: 'sub', text: sunSub(pos) }));
+  } else if (heading.kind === 'available') {
     guide.append(h('h1', { class: 'headline', text: turnHeadline(computeTurn(pos.azimuth, heading.heading)) }));
   } else {
     guide.append(h('h1', { class: 'headline', text: facingHeadline(pos.azimuth) }));
   }
-  guide.append(h('p', { class: 'sub', text: sunSub(pos) }));
-  if (heading.kind === 'needs-permission') {
+  if (!visibility.belowHorizon) guide.append(h('p', { class: 'sub', text: sunSub(pos) }));
+  if (!visibility.belowHorizon && heading.kind === 'needs-permission') {
     guide.append(h('p', { class: 'note', text: T.headingNeedsPermission }));
     guide.append(button(T.allowHeading, handlers.onRequestHeading, 'btn btn-primary'));
-  } else if (heading.kind === 'unavailable') {
+  } else if (!visibility.belowHorizon && heading.kind === 'unavailable') {
     guide.append(h('p', { class: 'note', text: heading.reason === 'denied' ? T.headingDenied : T.headingUnsupported }));
   }
   info.append(guide);
@@ -485,7 +498,7 @@ function renderLastGoodCard(state: AppState): HTMLElement {
   const dl = h('dl', { class: 'kv-list' });
   dl.append(
     row(T.azimuth, `${formatDegrees(r.position.azimuth)} (${compassPoint(r.position.azimuth)}쪽)`),
-    row(T.altitude, formatDegrees(r.position.altitude)),
+    row(T.altitude, `${formatDegrees(r.position.altitude)}${r.position.altitude <= 0 ? ' · 지평선 이하' : ''}`),
     row(T.fetchedAt, `${formatKstTime(r.fetchedAt)} KST`),
     row(T.sourceLabel, r.source),
   );

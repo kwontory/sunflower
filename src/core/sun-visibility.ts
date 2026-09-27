@@ -22,18 +22,19 @@ export interface SunVisibilityState {
 export function getSunVisibilityState(
   input: SunVisibilityInput,
 ): SunVisibilityState {
+  const belowHorizon = input.altitude <= 0;
+  const allowDirectionGuidance = !belowHorizon;
   return {
-    belowHorizon: false,
-    allowDirectionGuidance: true,
-    allowTurnGuidance: true,
-    allowBearingGuidance: true,
+    belowHorizon,
+    allowDirectionGuidance,
+    allowTurnGuidance: allowDirectionGuidance && input.hasHeading,
+    allowBearingGuidance: allowDirectionGuidance && !input.hasHeading,
     showSolarData: true,
     showDataStatus: true,
     showSource: true,
     showFailureState: input.requestFailed,
     showLastGood: input.isLastGood,
-    treatAsLive: !input.requestFailed,
-    message: '',
+    treatAsLive: !input.requestFailed && !input.isLastGood,
+    message: belowHorizon ? '해가 지평선 아래에 있어요' : '',
   };
 }
-
